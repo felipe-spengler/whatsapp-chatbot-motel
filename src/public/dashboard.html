@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motel Intensy | Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <nav class="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-900">
+        <h1 class="text-xl font-bold text-pink-500">MOTEL <span class="text-white">INTENSY</span></h1>
+        <div id="status-chip" class="px-4 py-1 rounded-full text-xs font-semibold bg-gray-800 text-gray-400">Desconectado</div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto mt-10 p-6">
+        <div class="bg-gray-900 border border-gray-800 rounded-3xl p-10 text-center shadow-2xl">
+            <div id="qr-section" class="hidden">
+                <h2 class="text-2xl font-bold mb-4">Conectar WhatsApp</h2>
+                <p class="text-gray-400 mb-8">Escaneie o QR Code abaixo para ativar o robô.</p>
+                <div class="bg-white p-4 inline-block rounded-2xl">
+                    <img id="qr-image" class="w-64 h-64" src="">
+                </div>
+            </div>
+
+            <div id="connected-section" class="hidden">
+                <div class="w-20 h-20 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <h2 class="text-3xl font-bold mb-2">WhatsApp Conectado!</h2>
+                <p class="text-gray-400">O robô está respondendo os clientes do Motel.</p>
+                <div class="mt-8 grid grid-cols-2 gap-4 text-left">
+                    <div class="bg-gray-800 p-4 rounded-xl">
+                        <span class="text-gray-500 text-xs uppercase">Sessão</span>
+                        <p class="font-mono text-pink-400">motel-intensy-session</p>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl">
+                        <span class="text-gray-500 text-xs uppercase">Status</span>
+                        <p class="text-green-500">Operacional</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="loading-section">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
+                <p class="mt-4 text-gray-500">Iniciando sistema...</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const socket = io();
+        const qrImage = document.getElementById('qr-image');
+        const qrSection = document.getElementById('qr-section');
+        const connectedSection = document.getElementById('connected-section');
+        const loadingSection = document.getElementById('loading-section');
+        const statusChip = document.getElementById('status-chip');
+
+        socket.on('qr', (url) => {
+            qrImage.src = url;
+            qrSection.classList.remove('hidden');
+            loadingSection.classList.add('hidden');
+            connectedSection.classList.add('hidden');
+            statusChip.innerText = 'Aguardando Escaneamento';
+            statusChip.className = 'px-4 py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-500';
+        });
+
+        socket.on('status', (status) => {
+            if (status === 'connected' || status === 'isLogged') {
+                connectedSection.classList.remove('hidden');
+                qrSection.classList.add('hidden');
+                loadingSection.classList.add('hidden');
+                statusChip.innerText = 'Conectado';
+                statusChip.className = 'px-4 py-1 rounded-full text-xs font-semibold bg-green-500/20 text-green-500';
+            }
+        });
+    </script>
+</body>
+</html>
