@@ -152,8 +152,8 @@ async function handleAnyMessage(client, message) {
             sessions[to] = { history: [], messageCount: 0, lastUserText: '', repeatCount: 0, lastHumanInteraction: 0, lastBotSentTime: 0 };
         }
 
-        // Se a mensagem foi enviada pelo bot nos últimos 3 segundos, ignorar (não é humano)
-        const isBotMessage = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 3000;
+        // Se a mensagem foi enviada pelo bot nos últimos 1.5 segundos, ignorar (não é humano)
+        const isBotMessage = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 1500;
 
         if (!isBotMessage) {
             sessions[to].lastHumanInteraction = Date.now();
