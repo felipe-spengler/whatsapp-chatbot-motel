@@ -51,6 +51,12 @@ async function handleMessage(client, message) {
             await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, notificationMsg);
         }
 
+        // Iniciar indicador de "digitando"
+        await client.startTyping(from);
+        
+        // Simular tempo de resposta humano (2 segundos)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
         // Resposta para o cliente
         await client.sendText(from, aiResponse);
 
