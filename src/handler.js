@@ -49,6 +49,32 @@ async function handleMessage(client, message) {
 
     session.messageCount++;
 
+    // --- CAMADA DE RESPOSTAS RÁPIDAS (GREETINGS) ---
+    const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
+    const isOnlyGreeting = greetings.includes(text.toLowerCase()) || (text.length <= 4 && greetings.some(g => text.toLowerCase().includes(g)));
+    
+    // Se for apenas uma saudação, responder sem gastar cota de IA
+    if (isOnlyGreeting && session.messageCount === 1) {
+        const hour = new Date().getHours() - 3; // GMT-3 (Brasil)
+        let greet = "Olá! ✨";
+        if (hour >= 5 && hour < 12) greet = "Bom dia! ✨";
+        else if (hour >= 12 && hour < 18) greet = "Boa tarde! ✨";
+        else greet = "Boa noite! ✨";
+        
+        const staticResponse = `${greet} Que prazer receber sua mensagem aqui no *Motel Intensy*. Como posso tornar seu momento especial hoje? 💖`;
+        
+        await client.startTyping(from);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await client.sendText(from, staticResponse);
+        await client.stopTyping(from);
+
+        // Salvar no histórico para que a IA saiba que já cumprimentamos
+        session.history.push({ role: 'user', content: text });
+        session.history.push({ role: 'assistant', content: staticResponse });
+        return;
+    }
+    // ----------------------------------------------
+
     try {
         // Obter resposta da IA
         const aiResponse = await getMotelAIResponse(text, session.history);
