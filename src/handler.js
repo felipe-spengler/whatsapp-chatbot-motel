@@ -57,6 +57,9 @@ async function handleMessage(client, message) {
         session.history.push({ role: 'user', content: text });
         session.history.push({ role: 'assistant', content: aiResponse });
 
+        // Marcar que o BOT enviou mensagem agora para o handleAnyMessage ignorar
+        session.lastBotSentTime = Date.now();
+
         // Limitar histórico para não estourar contexto
         if (session.history.length > 20) session.history.shift();
 
@@ -101,10 +104,16 @@ async function handleAnyMessage(client, message) {
     if (message.fromMe && message.type === 'chat' && !message.to.includes('broadcast')) {
         const to = message.to;
         if (!sessions[to]) {
-            sessions[to] = { history: [], messageCount: 0, lastUserText: '', repeatCount: 0, lastHumanInteraction: 0 };
+            sessions[to] = { history: [], messageCount: 0, lastUserText: '', repeatCount: 0, lastHumanInteraction: 0, lastBotSentTime: 0 };
         }
-        sessions[to].lastHumanInteraction = Date.now();
-        console.log(`Intervenção humana detectada para ${to}. Travando AI por 5min.`);
+
+        // Se a mensagem foi enviada pelo bot nos últimos 3 segundos, ignorar (não é humano)
+        const isBotMessage = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 3000;
+        
+        if (!isBotMessage) {
+            sessions[to].lastHumanInteraction = Date.now();
+            console.log(`Intervenção humana (vinda do Celular/Web) detectada para ${to}. Travando AI por 5min.`);
+        }
     }
 }
 
