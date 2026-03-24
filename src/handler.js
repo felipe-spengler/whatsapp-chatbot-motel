@@ -1,13 +1,20 @@
 const { getMotelAIResponse } = require('./ai_service');
 
 const sessions = {};
-const NOTIFICATION_NUMBER = process.env.NOTIFICATION_NUMBER || '5549999459490';
+const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER || '5549999459490').replace(/\D/g, '');
+const startTime = Math.floor(Date.now() / 1000); // Timestamp em segundos
 
 /**
  * Handle incoming messages for Motel Intensy
  */
 async function handleMessage(client, message) {
     if (!message.from || message.isGroupMsg) return;
+
+    // Ignorar mensagens antigas (antes do bot iniciar)
+    if (message.timestamp < startTime) return;
+
+    // Ignorar mensagens do número de notificação para evitar loops
+    if (message.from.includes(NOTIFICATION_NUMBER)) return;
 
     const from = message.from;
     const text = message.body ? message.body.trim() : '';
