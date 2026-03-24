@@ -3,7 +3,7 @@ const fs = require('fs-extra');
 const path = require('path');
 
 // Carregar o prompt do arquivo txt
-const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', '..', 'prompt_ia.txt'), 'utf8');
+const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
 
 async function getMotelAIResponse(userText, history = []) {
     try {
