@@ -51,6 +51,12 @@ app.post('/login', (req, res) => {
 
 async function initWhatsApp() {
     try {
+        // Limpar trava do Chromium se o container caiu e deixou sujeira
+        const lockFile = path.join(__dirname, '..', 'tokens', (process.env.SESSION_NAME || 'motel-intensy'), 'SingletonLock');
+        if (fs.existsSync(lockFile)) {
+            try { fs.unlinkSync(lockFile); console.log('Trava de sessão antiga removida.'); } catch (e) {}
+        }
+
         const client = await wppconnect.create({
             session: process.env.SESSION_NAME || 'motel-intensy',
             catchQR: (base64Qrimg) => {
