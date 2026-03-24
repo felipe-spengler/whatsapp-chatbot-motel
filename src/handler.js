@@ -1,4 +1,4 @@
-const { getMotelAIResponse } = require('./ai_service');
+const { getMotelAIResponse, transcribeAudio } = require('./ai_service');
 
 const sessions = {};
 const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER || '554999459490').replace(/\D/g, '');
@@ -13,7 +13,26 @@ async function handleMessage(client, message) {
     if (message.from.includes(NOTIFICATION_NUMBER)) return;
 
     const from = message.from;
-    const text = message.body ? message.body.trim() : '';
+    let text = message.body ? message.body.trim() : '';
+
+    // --- CAMADA DE SPEECH-TO-TEXT (AUDIO) ---
+    if (message.type === 'audio' || message.type === 'ptt') {
+        try {
+            console.log(`Recebido áudio de ${from}. Transcrevendo...`);
+            const buffer = await client.decryptFile(message);
+            const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
+            
+            if (transcribedText) {
+                console.log(`Transcrição concluída: "${transcribedText}"`);
+                text = transcribedText;
+            } else {
+                console.warn('Transcrição falhou ou retornou vazio.');
+            }
+        } catch (error) {
+            console.error('Erro ao processar áudio:', error);
+        }
+    }
+    // ----------------------------------------
 
     if (!sessions[from]) {
         sessions[from] = { 
