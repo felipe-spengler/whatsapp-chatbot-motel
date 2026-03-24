@@ -24,11 +24,19 @@ async function handleMessage(client, message) {
             history: [],
             messageCount: 0,
             lastUserText: '',
-            repeatCount: 0
+            repeatCount: 0,
+            lastHumanInteraction: 0
         };
     }
 
     const session = sessions[from];
+
+    // Trava de Atendimento Humano: Se você enviou msg nos últimos 5 minutos, o bot silencia
+    const fiveMinutes = 5 * 60 * 1000;
+    if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
+        console.log(`Atendimento humano detectado para ${from}. AI silenciada.`);
+        return;
+    }
 
     // Detectar loop de IA (mesma mensagem repetida ou muitas mensagens seguidas)
     if (text === session.lastUserText) {
@@ -85,4 +93,15 @@ async function handleMessage(client, message) {
     }
 }
 
-module.exports = { handleMessage };
+async function handleAnyMessage(client, message) {
+    if (message.fromMe && message.type === 'chat') {
+        const to = message.to;
+        if (!sessions[to]) {
+            sessions[to] = { history: [], messageCount: 0, lastUserText: '', repeatCount: 0, lastHumanInteraction: 0 };
+        }
+        sessions[to].lastHumanInteraction = Date.now();
+        console.log(`Intervenção humana detectada para ${to}. Travando AI por 5min.`);
+    }
+}
+
+module.exports = { handleMessage, handleAnyMessage };

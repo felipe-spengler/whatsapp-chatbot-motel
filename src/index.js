@@ -87,6 +87,11 @@ async function initWhatsApp() {
             await handleMessage(client, message);
         });
 
+        client.onAnyMessage(async (message) => {
+            const { handleAnyMessage } = require('./handler');
+            await handleAnyMessage(client, message);
+        });
+
     } catch (error) {
         console.error('WPP Error:', error);
         io.emit('status', 'error');
