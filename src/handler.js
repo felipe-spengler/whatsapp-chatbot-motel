@@ -56,13 +56,16 @@ async function handleMessage(client, message) {
         // Limitar histórico para não estourar contexto
         if (session.history.length > 20) session.history.shift();
 
-        // Lógica de monitoramento de reserva (Baseado no prompt do usuário)
-        // O fluxo tem 4 perguntas. Vamos detectar se a IA enviou a mensagem final.
-        if (aiResponse.includes("Vou te transferir agora para um de nossos atendentes")) {
-            console.log(`Reserva detectada para ${from}! Notificando...`);
+        // Lógica de monitoramento de reserva e transferência humana
+        const transferKeywords = ['atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente'];
+        const userAskedForHuman = transferKeywords.some(kw => text.toLowerCase().includes(kw));
+        const aiSuggestedTransfer = aiResponse.includes("Vou te transferir agora para um de nossos atendentes");
+
+        if (userAskedForHuman || aiSuggestedTransfer) {
+            console.log(`Transferência solicitada para ${from}! Notificando...`);
             
             // Notificar o número configurado
-            const notificationMsg = `🔔 *NOVA RESERVA INICIADA!*\n\nCliente: ${from.split('@')[0]}\n\nO robô já coletou as informações básicas. Por favor, assuma o atendimento para finalizar o pagamento.`;
+            const notificationMsg = `🔔 *TRANSFERÊNCIA SOLICITADA!*\n\nCliente: ${from.split('@')[0]}\n\nO cliente pediu por um atendente ou finalizou o fluxo de reserva. Por favor, assuma o atendimento!`;
             
             await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, notificationMsg);
         }
