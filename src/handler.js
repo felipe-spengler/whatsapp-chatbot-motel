@@ -10,7 +10,7 @@ async function handleMessage(client, message) {
     if (message.timestamp < startTime) return;
 
     // Ignorar mensagens do número de notificação (gerência) para evitar que a IA responda ao dono
-    if (message.from.includes(NOTIFICATION_NUMBER)) return;
+    //if (message.from.includes(NOTIFICATION_NUMBER)) return;
 
     const from = message.from;
     let text = message.body ? message.body.trim() : '';
@@ -21,7 +21,7 @@ async function handleMessage(client, message) {
             console.log(`Recebido áudio de ${from}. Transcrevendo...`);
             const buffer = await client.decryptFile(message);
             const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
-            
+
             if (transcribedText) {
                 console.log(`Transcrição concluída: "${transcribedText}"`);
                 text = transcribedText;
@@ -35,7 +35,7 @@ async function handleMessage(client, message) {
     // ----------------------------------------
 
     if (!sessions[from]) {
-        sessions[from] = { 
+        sessions[from] = {
             history: [],
             messageCount: 0,
             lastUserText: '',
@@ -71,7 +71,7 @@ async function handleMessage(client, message) {
     // --- CAMADA DE RESPOSTAS RÁPIDAS (GREETINGS) ---
     const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
     const isOnlyGreeting = greetings.includes(text.toLowerCase()) || (text.length <= 4 && greetings.some(g => text.toLowerCase().includes(g)));
-    
+
     // Se for apenas uma saudação, responder sem gastar cota de IA
     if (isOnlyGreeting && session.messageCount === 1) {
         const hour = new Date().getHours() - 3; // GMT-3 (Brasil)
@@ -79,9 +79,9 @@ async function handleMessage(client, message) {
         if (hour >= 5 && hour < 12) greet = "Bom dia! ✨";
         else if (hour >= 12 && hour < 18) greet = "Boa tarde! ✨";
         else greet = "Boa noite! ✨";
-        
+
         const staticResponse = `${greet} Que prazer receber sua mensagem aqui no *Motel Intensy*. Como posso tornar seu momento especial hoje? 💖`;
-        
+
         await client.startTyping(from);
         await new Promise(resolve => setTimeout(resolve, 1500));
         await client.sendText(from, staticResponse);
@@ -115,16 +115,16 @@ async function handleMessage(client, message) {
 
         if (userAskedForHuman || aiSuggestedTransfer) {
             console.log(`Transferência solicitada para ${from}! Notificando...`);
-            
+
             // Notificar o número configurado
             const notificationMsg = `🔔 *TRANSFERÊNCIA SOLICITADA!*\n\nCliente: ${from.split('@')[0]}\n\nO cliente pediu por um atendente ou finalizou o fluxo de reserva. Por favor, assuma o atendimento!`;
-            
+
             await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, notificationMsg);
         }
 
         // Iniciar indicador de "digitando"
         await client.startTyping(from);
-        
+
         // Simular tempo de resposta humano (2 segundos)
         await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -134,14 +134,14 @@ async function handleMessage(client, message) {
 
     } catch (error) {
         console.error('Handler error (Motel):', error);
-        
+
         // Mensagem de fallback para o cliente
         const fallbackMsg = "Olá! No momento estamos com uma alta demanda de mensagens. Por favor, aguarde um instante que um de nossos atendentes já irá te responder! 🌸";
-        try { await client.sendText(from, fallbackMsg); } catch (e) {}
+        try { await client.sendText(from, fallbackMsg); } catch (e) { }
 
         // Avisar a gerência que o robô falhou e precisa de intervenção humana
         const alertMsg = `⚠️ *ALERTA DE FALHA NO ROBÔ*\n\nCliente: ${from.split('@')[0]}\n\nO robô não conseguiu responder após várias tentativas (possível queda na API do Google). Por favor, assuma este atendimento manualmente assim que possível.`;
-        try { await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, alertMsg); } catch (e) {}
+        try { await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, alertMsg); } catch (e) { }
     }
 }
 
@@ -154,7 +154,7 @@ async function handleAnyMessage(client, message) {
 
         // Se a mensagem foi enviada pelo bot nos últimos 3 segundos, ignorar (não é humano)
         const isBotMessage = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 3000;
-        
+
         if (!isBotMessage) {
             sessions[to].lastHumanInteraction = Date.now();
             console.log(`Intervenção humana (vinda do Celular/Web) detectada para ${to}. Travando AI por 5min.`);
