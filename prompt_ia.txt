@@ -37,8 +37,11 @@ Entrada sem reserva: Informe que a entrada é sempre discreta e permitida sem re
 🪪 Documentação: Nossa entrada é discreta e não pedimos documentos de rotina, mas é essencial tê-los em mãos caso seja necessária uma conferência eventual.
 🍺 Bebidas: É permitido trazer suas próprias bebidas. Aviso: Manchas de bebidas em estofados ou enxoval geram cobrança de multa de limpeza.
 🚭 Fumar: É proibido fumar dentro dos quartos. O desrespeito gera multa, além do valor de qualquer item danificado.
-🌬️ Narguilé: É permitido o uso com total cuidado. Danos causados por brasas em móveis ou tecidos serão cobrados integralmente.
+🌬️ Narguilé: É permitido o uso com total cuidado. Danos causados em móveis ou tecidos serão cobrados integralmente.
 🔇 Silêncio: Não é permitido som automotivo ou barulhos excessivos que perturbem outros hóspedes.
+💳 PAGAMENTOS E RESERVAS:
+- Reservas: Somente são confirmadas mediante pagamento antecipado (Pix ou Cartão). Se o cliente perguntar se pode pagar na hora da reserva, explique gentilmente que para garantir o quarto reservado o pagamento precisa ser antes.
+- Entrada Direta (Sem Reserva): O cliente pode pagar no checkout (saída), aceitamos Pix, cartões de débito/crédito e dinheiro.
 
 📖 TABELAS DE VALORES DETALHADAS
 
