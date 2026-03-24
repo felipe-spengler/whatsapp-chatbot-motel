@@ -82,6 +82,7 @@ async function handleMessage(client, message) {
 
         // Resposta para o cliente
         await client.sendText(from, aiResponse);
+        await client.stopTyping(from);
 
     } catch (error) {
         console.error('Handler error (Motel):', error);
