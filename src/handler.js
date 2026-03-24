@@ -22,12 +22,28 @@ async function handleMessage(client, message) {
     if (!sessions[from]) {
         sessions[from] = { 
             history: [],
-            reservationStep: 0,
-            reservationData: {}
+            messageCount: 0,
+            lastUserText: '',
+            repeatCount: 0
         };
     }
 
     const session = sessions[from];
+
+    // Detectar loop de IA (mesma mensagem repetida ou muitas mensagens seguidas)
+    if (text === session.lastUserText) {
+        session.repeatCount++;
+    } else {
+        session.repeatCount = 0;
+        session.lastUserText = text;
+    }
+
+    if (session.repeatCount >= 2 || session.messageCount >= 15) {
+        console.log(`Possível loop de IA detectado para ${from}. Interrompendo respostas automáticas.`);
+        return;
+    }
+
+    session.messageCount++;
 
     try {
         // Obter resposta da IA
