@@ -68,6 +68,7 @@ async function initWhatsApp() {
             },
             headless: 'new',
             useChrome: true,
+            autoClose: 0,
             browserArgs: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
