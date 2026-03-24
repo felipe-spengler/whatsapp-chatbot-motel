@@ -86,7 +86,14 @@ async function handleMessage(client, message) {
 
     } catch (error) {
         console.error('Handler error (Motel):', error);
-        // Silencioso: não enviar mensagem de erro para o cliente
+        
+        // Mensagem de fallback para o cliente
+        const fallbackMsg = "Olá! No momento estamos com uma alta demanda de mensagens. Por favor, aguarde um instante que um de nossos atendentes já irá te responder! 🌸";
+        try { await client.sendText(from, fallbackMsg); } catch (e) {}
+
+        // Avisar a gerência que o robô falhou e precisa de intervenção humana
+        const alertMsg = `⚠️ *ALERTA DE FALHA NO ROBÔ*\n\nCliente: ${from.split('@')[0]}\n\nO robô não conseguiu responder após várias tentativas (possível queda na API do Google). Por favor, assuma este atendimento manualmente assim que possível.`;
+        try { await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, alertMsg); } catch (e) {}
     }
 }
 
