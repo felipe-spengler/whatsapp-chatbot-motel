@@ -4,7 +4,7 @@ const session = require('express-session');
 const bodyParser = require('body-parser');
 const http = require('http');
 const { Server } = require('socket.io');
-const wppconnect = require('@wppconnect-team/wppconnect');
+const fs = require('fs');
 const path = require('path');
 const { handleMessage } = require('./handler');
 
