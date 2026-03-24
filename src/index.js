@@ -99,6 +99,31 @@ async function initWhatsApp() {
     }
 }
 
+io.on('connection', (socket) => {
+    console.log('Painel Admin conectado:', socket.id);
+    if (lastQR) socket.emit('qr', lastQR);
+    socket.emit('status', lastStatus);
+
+    socket.on('refresh-qr', async () => {
+        console.log('Solicitação de atualização de QR Code recebida');
+        if (wppClient) {
+            try {
+                await wppClient.close();
+                wppClient = null;
+                lastQR = null;
+                lastStatus = 'loading';
+                io.emit('status', 'loading');
+                initWhatsApp();
+            } catch (e) {
+                console.error('Erro ao reiniciar sessão:', e);
+                initWhatsApp();
+            }
+        } else {
+            initWhatsApp();
+        }
+    });
+});
+
 server.listen(PORT, () => {
     console.log(`Motel Dashboard: http://localhost:${PORT}`);
     initWhatsApp();
