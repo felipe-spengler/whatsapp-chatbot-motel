@@ -11,6 +11,8 @@ const { handleMessage } = require('./handler');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+let lastQR = null;
+let lastStatus = 'loading';
 
 const PORT = process.env.PORT || 3001;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -50,14 +52,26 @@ async function initWhatsApp() {
     try {
         const client = await wppconnect.create({
             session: process.env.SESSION_NAME || 'motel-intensy',
-            catchQR: (base64Qrimg) => io.emit('qr', base64Qrimg),
-            statusFind: (statusSession) => io.emit('status', statusSession),
+            catchQR: (base64Qrimg) => {
+                lastQR = base64Qrimg;
+                lastStatus = 'qr';
+                io.emit('qr', base64Qrimg);
+            },
+            statusFind: (statusSession) => {
+                lastStatus = statusSession;
+                if (statusSession === 'isLogged' || statusSession === 'connected') {
+                    lastQR = null;
+                }
+                io.emit('status', statusSession);
+                console.log('Status Session:', statusSession);
+            },
             headless: 'new',
             useChrome: true,
             browserArgs: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
         console.log('Motel Bot is active!');
+        lastStatus = 'connected';
         io.emit('status', 'connected');
 
         client.onMessage(async (message) => {
