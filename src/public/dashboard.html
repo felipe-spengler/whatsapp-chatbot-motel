@@ -79,7 +79,8 @@
         });
 
         socket.on('status', (status) => {
-            if (status === 'connected' || status === 'isLogged') {
+            const connectedStates = ['connected', 'isLogged', 'inChat', 'SYNCING', 'success'];
+            if (connectedStates.includes(status)) {
                 connectedSection.classList.remove('hidden');
                 qrSection.classList.add('hidden');
                 loadingSection.classList.add('hidden');
