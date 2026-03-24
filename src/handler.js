@@ -5,159 +5,159 @@ const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER || '554999459490').
 const startTime = Math.floor(Date.now() / 1000);
 
 async function handleMessage(client, message) {
+    // 1. Filtros Básicos
     if (!message.from || message.isGroupMsg || message.from.includes('broadcast')) return;
-
     if (message.timestamp < startTime) return;
 
-    // Ignorar mensagens do número de notificação (gerência) para evitar que a IA responda ao dono
-    //if (message.from.includes(NOTIFICATION_NUMBER)) return;
-
     const from = message.from;
-    let text = message.body ? message.body.trim() : '';
 
-    // --- CAMADA DE SPEECH-TO-TEXT (AUDIO) ---
-    if (message.type === 'audio' || message.type === 'ptt') {
-        try {
-            console.log(`Recebido áudio de ${from}. Transcrevendo...`);
-            const buffer = await client.decryptFile(message);
-            const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
-
-            if (transcribedText) {
-                console.log(`Transcrição concluída: "${transcribedText}"`);
-                text = transcribedText;
-            } else {
-                console.warn('Transcrição falhou ou retornou vazio.');
-            }
-        } catch (error) {
-            console.error('Erro ao processar áudio:', error);
-        }
-    }
-    // ----------------------------------------
-
+    // 2. Inicialização da Sessão
     if (!sessions[from]) {
         sessions[from] = {
             history: [],
             messageCount: 0,
             lastUserText: '',
             repeatCount: 0,
-            lastHumanInteraction: 0
+            lastHumanInteraction: 0,
+            lastBotSentTime: 0,
+            isProcessing: false,
+            lastSender: 'none'
         };
     }
 
     const session = sessions[from];
 
-    // Trava de Atendimento Humano: Se você enviou msg nos últimos 5 minutos, o bot silencia
+    // 3. Trava de Intervenção Humana (5 minutos)
     const fiveMinutes = 5 * 60 * 1000;
     if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
         console.log(`Atendimento humano detectado para ${from}. AI silenciada.`);
         return;
     }
 
-    // Detectar loop de IA (mesma mensagem repetida ou muitas mensagens seguidas)
-    if (text === session.lastUserText) {
-        session.repeatCount++;
-    } else {
-        session.repeatCount = 0;
-        session.lastUserText = text;
-    }
+    // 4. Trava de Fila: Se já estiver processando esse cliente, ignorar disparos duplicados
+    if (session.isProcessing) return;
 
-    if (session.repeatCount >= 2 || session.messageCount >= 15) {
-        console.log(`Possível loop de IA detectado para ${from}. Interrompendo respostas automáticas.`);
-        return;
-    }
-
-    session.messageCount++;
-
-    // --- CAMADA DE RESPOSTAS RÁPIDAS (GREETINGS) ---
-    const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
-    const isOnlyGreeting = greetings.includes(text.toLowerCase()) || (text.length <= 4 && greetings.some(g => text.toLowerCase().includes(g)));
-
-    // Se for apenas uma saudação, responder sem gastar cota de IA
-    if (isOnlyGreeting && session.messageCount === 1) {
-        const hour = new Date().getHours() - 3; // GMT-3 (Brasil)
-        let greet = "Olá! ✨";
-        if (hour >= 5 && hour < 12) greet = "Bom dia! ✨";
-        else if (hour >= 12 && hour < 18) greet = "Boa tarde! ✨";
-        else greet = "Boa noite! ✨";
-
-        const staticResponse = `${greet} Que prazer receber sua mensagem aqui no *Motel Intensy*. Como posso tornar seu momento especial hoje? 💖`;
-
-        await client.startTyping(from);
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        await client.sendText(from, staticResponse);
-        await client.stopTyping(from);
-
-        // Salvar no histórico para que a IA saiba que já cumprimentamos
-        session.history.push({ role: 'user', content: text });
-        session.history.push({ role: 'assistant', content: staticResponse });
-        return;
-    }
-    // ----------------------------------------------
+    // 5. Marcação de entrada
+    session.lastSender = 'customer';
+    let text = message.body ? message.body.trim() : '';
 
     try {
-        // Obter resposta da IA
-        const aiResponse = await getMotelAIResponse(text, session.history);
+        session.isProcessing = true; // Bloqueia novos processamentos para este cliente
 
-        // Salvar no histórico
-        session.history.push({ role: 'user', content: text });
-        session.history.push({ role: 'assistant', content: aiResponse });
-
-        // Marcar que o BOT enviou mensagem agora para o handleAnyMessage ignorar
-        session.lastBotSentTime = Date.now();
-
-        // Limitar histórico para não estourar contexto
-        if (session.history.length > 20) session.history.shift();
-
-        // Lógica de monitoramento de reserva e transferência humana
-        const transferKeywords = ['atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente'];
-        const userAskedForHuman = transferKeywords.some(kw => text.toLowerCase().includes(kw));
-        const aiSuggestedTransfer = aiResponse.includes("Vou te transferir agora para um de nossos atendentes");
-
-        if (userAskedForHuman || aiSuggestedTransfer) {
-            console.log(`Transferência solicitada para ${from}! Notificando...`);
-
-            // Notificar o número configurado
-            const notificationMsg = `🔔 *TRANSFERÊNCIA SOLICITADA!*\n\nCliente: ${from.split('@')[0]}\n\nO cliente pediu por um atendente ou finalizou o fluxo de reserva. Por favor, assuma o atendimento!`;
-
-            await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, notificationMsg);
+        // --- CAMADA DE SPEECH-TO-TEXT (AUDIO) ---
+        if (message.type === 'audio' || message.type === 'ptt') {
+            try {
+                console.log(`Recebido áudio de ${from}. Transcrevendo...`);
+                const buffer = await client.decryptFile(message);
+                const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
+                if (transcribedText) {
+                    console.log(`Transcrição concluída: "${transcribedText}"`);
+                    text = transcribedText;
+                }
+            } catch (error) {
+                console.error('Erro ao processar áudio:', error);
+            }
         }
 
-        // Iniciar indicador de "digitando"
+        if (!text) {
+            session.isProcessing = false;
+            return;
+        }
+
+        // --- ANTI-LOOP E REPETIÇÃO ---
+        if (text === session.lastUserText) {
+            session.repeatCount++;
+        } else {
+            session.repeatCount = 0;
+            session.lastUserText = text;
+        }
+
+        if (session.repeatCount >= 2 || session.messageCount >= 15) {
+            console.log(`Loop detectado para ${from}. Parando.`);
+            session.isProcessing = false;
+            return;
+        }
+
+        session.messageCount++;
+
+        // --- RESPOSTAS RÁPIDAS (GREETINGS) ---
+        const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
+        const isOnlyGreeting = greetings.includes(text.toLowerCase()) || (text.length <= 4 && greetings.some(g => text.toLowerCase().includes(g)));
+
+        if (isOnlyGreeting && session.messageCount === 1) {
+            const hour = new Date().getHours() - 3; // Brasil
+            let greet = (hour >= 5 && hour < 12) ? "Bom dia!" : (hour >= 12 && hour < 18) ? "Boa tarde!" : "Boa noite!";
+            const staticResponse = `${greet} ✨ Bem-vindo ao *Motel Intensy*. Como posso ajudar você hoje? 💖`;
+
+            await client.startTyping(from);
+            await new Promise(r => setTimeout(r, 1500));
+            await client.sendText(from, staticResponse);
+
+            session.lastBotSentTime = Date.now();
+            session.lastSender = 'bot';
+            session.history.push({ role: 'user', content: text }, { role: 'assistant', content: staticResponse });
+            session.isProcessing = false;
+            return;
+        }
+
+        // --- PROCESSAMENTO IA ---
+        const aiResponse = await getMotelAIResponse(text, session.history);
+
+        // Atualiza Histórico
+        session.history.push({ role: 'user', content: text }, { role: 'assistant', content: aiResponse });
+        if (session.history.length > 20) session.history.shift();
+
+        // Verificação de Transferência
+        const transferKeywords = ['atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente'];
+        const userAskedForHuman = transferKeywords.some(kw => text.toLowerCase().includes(kw));
+        if (userAskedForHuman || aiResponse.includes("Vou te transferir")) {
+            await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
+        }
+
+        // Simulação Humana e Envio
         await client.startTyping(from);
+        await new Promise(r => setTimeout(r, 2000));
 
-        // Simular tempo de resposta humano (2 segundos)
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // Resposta para o cliente
         await client.sendText(from, aiResponse);
+
+        session.lastBotSentTime = Date.now(); // Marca o tempo do envio
+        session.lastSender = 'bot';           // Garante que o bot é o último a falar
         await client.stopTyping(from);
 
     } catch (error) {
-        console.error('Handler error (Motel):', error);
-
-        // Mensagem de fallback para o cliente
-        const fallbackMsg = "Olá! No momento estamos com uma alta demanda de mensagens. Por favor, aguarde um instante que um de nossos atendentes já irá te responder! 🌸";
-        try { await client.sendText(from, fallbackMsg); } catch (e) { }
-
-        // Avisar a gerência que o robô falhou e precisa de intervenção humana
-        const alertMsg = `⚠️ *ALERTA DE FALHA NO ROBÔ*\n\nCliente: ${from.split('@')[0]}\n\nO robô não conseguiu responder após várias tentativas (possível queda na API do Google). Por favor, assuma este atendimento manualmente assim que possível.`;
-        try { await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, alertMsg); } catch (e) { }
+        console.error('Erro no Handler:', error);
+        await client.sendText(from, "Desculpe, tive um probleminha técnico. Um atendente já vai te ajudar! 🌸");
+    } finally {
+        session.isProcessing = false; // Libera para a próxima mensagem
     }
 }
 
 async function handleAnyMessage(client, message) {
-    if (message.fromMe && message.type === 'chat' && !message.to.includes('broadcast')) {
-        const to = message.to;
-        if (!sessions[to]) {
-            sessions[to] = { history: [], messageCount: 0, lastUserText: '', repeatCount: 0, lastHumanInteraction: 0, lastBotSentTime: 0 };
-        }
+    if (!message.fromMe) return;
 
-        // Se a mensagem foi enviada pelo bot nos últimos 1.5 segundos, ignorar (não é humano)
-        const isBotMessage = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 1500;
+    // 1. Ignorar mensagens antigas (sync inicial) e protocolos
+    const now = Math.floor(Date.now() / 1000);
+    if (now - message.timestamp > 15) return;
+    if (message.type === 'protocol' || message.from.includes('broadcast')) return;
 
-        if (!isBotMessage) {
+    const to = message.to;
+    if (!sessions[to]) return;
+
+    // 2. Se o bot está no meio de um processamento, o 'fromMe' é dele mesmo
+    if (sessions[to].isProcessing) {
+        sessions[to].lastBotSentTime = Date.now();
+        return;
+    }
+
+    // 3. A Lógica de Ouro: Só é humano se VOCÊ mandou msg e o último foi o CLIENTE
+    // E se não foi uma mensagem enviada pelo bot nos últimos 3.5 segundos
+    const isBotRecently = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 3500;
+
+    if (sessions[to].lastSender === 'customer' && !isBotRecently) {
+        if (message.body && message.body.length > 0) {
             sessions[to].lastHumanInteraction = Date.now();
-            console.log(`Intervenção humana (vinda do Celular/Web) detectada para ${to}. Travando AI por 5min.`);
+            sessions[to].lastSender = 'human';
+            console.log(`[REAL] Intervenção detectada para ${to}. Bot pausado.`);
         }
     }
 }
