@@ -86,7 +86,7 @@ async function handleMessage(client, message) {
 
     } catch (error) {
         console.error('Handler error (Motel):', error);
-        await client.sendText(from, "Desculpe, tive um erro ao processar sua mensagem. 💖");
+        // Silencioso: não enviar mensagem de erro para o cliente
     }
 }
 
