@@ -24,6 +24,10 @@
                 <div class="bg-white p-4 inline-block rounded-2xl">
                     <img id="qr-image" class="w-64 h-64" src="">
                 </div>
+                <p class="mt-6 text-gray-400 text-sm text-center">Abra o WhatsApp no seu celular > Aparelhos conectados > Conectar um aparelho</p>
+                <div class="mt-8">
+                    <button id="refresh-btn" class="px-6 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-full text-xs font-semibold transition-all">🔄 Atualizar QR Code</button>
+                </div>
             </div>
 
             <div id="connected-section" class="hidden">
@@ -58,6 +62,12 @@
         const connectedSection = document.getElementById('connected-section');
         const loadingSection = document.getElementById('loading-section');
         const statusChip = document.getElementById('status-chip');
+        const refreshBtn = document.getElementById('refresh-btn');
+
+        refreshBtn.onclick = () => {
+            statusChip.innerText = 'Atualizando...';
+            socket.emit('refresh-qr');
+        };
 
         socket.on('qr', (url) => {
             qrImage.src = url;

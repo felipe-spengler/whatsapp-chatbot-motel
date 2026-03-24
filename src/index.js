@@ -13,6 +13,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 let lastQR = null;
 let lastStatus = 'loading';
+let wppClient = null;
 
 const PORT = process.env.PORT || 3001;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -70,9 +71,37 @@ async function initWhatsApp() {
             browserArgs: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
+        wppClient = client;
         console.log('Motel Bot is active!');
         lastStatus = 'connected';
         io.emit('status', 'connected');
+
+        io.on('connection', (socket) => {
+            console.log('Painel Admin conectado:', socket.id);
+            if (lastQR) socket.emit('qr', lastQR);
+            socket.emit('status', lastStatus);
+
+            socket.on('refresh-qr', async () => {
+                console.log('Solicitação de atualização de QR Code recebida');
+                if (wppClient) {
+                    try {
+                        // Tenta fechar a sessão atual e reiniciar
+                        await wppClient.close();
+                        wppClient = null;
+                        lastQR = null;
+                        lastStatus = 'loading';
+                        io.emit('status', 'loading');
+                        initWhatsApp();
+                    } catch (e) {
+                        console.error('Erro ao reiniciar sessão:', e);
+                        // Se falhar em fechar, apenas tenta iniciar de novo
+                        initWhatsApp();
+                    }
+                } else {
+                    initWhatsApp();
+                }
+            });
+        });
 
         client.onMessage(async (message) => {
             await handleMessage(client, message);
