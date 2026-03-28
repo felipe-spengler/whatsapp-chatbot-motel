@@ -4,6 +4,18 @@ const sessions = {};
 const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER || '554999459490').replace(/\D/g, '');
 const startTime = Math.floor(Date.now() / 1000);
 
+// Limpeza de sessões inativas a cada 15 minutos
+setInterval(() => {
+    const twelveHours = 12 * 60 * 60 * 1000;
+    const now = Date.now();
+    for (const from in sessions) {
+        if (now - (sessions[from].lastBotSentTime || sessions[from].lastHumanInteraction || now) > twelveHours) {
+            console.log(`Limpando sessão inativa: ${from}`);
+            delete sessions[from];
+        }
+    }
+}, 15 * 60 * 1000);
+
 async function handleMessage(client, message) {
     // 1. Filtros Básicos
     if (!message.from || message.isGroupMsg || message.from.includes('broadcast')) return;
@@ -48,8 +60,9 @@ async function handleMessage(client, message) {
         if (message.type === 'audio' || message.type === 'ptt') {
             try {
                 console.log(`Recebido áudio de ${from}. Transcrevendo...`);
-                const buffer = await client.decryptFile(message);
+                let buffer = await client.decryptFile(message);
                 const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
+                buffer = null; // Libera buffer da memória
                 if (transcribedText) {
                     console.log(`Transcrição concluída: "${transcribedText}"`);
                     text = transcribedText;

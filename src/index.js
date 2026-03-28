@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 const wppconnect = require('@wppconnect-team/wppconnect');
 const fs = require('fs');
 const path = require('path');
-const { handleMessage } = require('./handler');
+const { handleMessage, handleAnyMessage } = require('./handler');
 
 const app = express();
 const server = http.createServer(app);
@@ -76,7 +76,36 @@ async function initWhatsApp() {
             headless: 'new',
             useChrome: true,
             autoClose: 0,
-            browserArgs: ['--no-sandbox', '--disable-setuid-sandbox']
+            browserArgs: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--hide-scrollbars',
+                '--mute-audio',
+                '--disable-extensions',
+                '--disable-component-update',
+                '--disable-background-networking',
+                '--disable-background-timer-fast-tracking',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-breakpad',
+                '--disable-client-side-phishing-detection',
+                '--disable-default-apps',
+                '--disable-hang-monitor',
+                '--disable-popup-blocking',
+                '--disable-prompt-on-repost',
+                '--disable-sync',
+                '--disable-translate',
+                '--metrics-recording-only',
+                '--no-default-browser-check',
+                '--safebrowsing-disable-auto-update',
+                '--password-store=basic',
+                '--use-mock-keychain',
+                '--js-flags="--max-old-space-size=512"'
+            ]
         });
 
         wppClient = client;
@@ -89,7 +118,6 @@ async function initWhatsApp() {
         });
 
         client.onAnyMessage(async (message) => {
-            const { handleAnyMessage } = require('./handler');
             await handleAnyMessage(client, message);
         });
 
@@ -106,19 +134,19 @@ io.on('connection', (socket) => {
 
     socket.on('refresh-qr', async () => {
         console.log('Solicitação de atualização de QR Code recebida');
-        if (wppClient) {
-            try {
-                await wppClient.close();
+        try {
+            if (wppClient) {
+                console.log('Fechando cliente antigo...');
+                await wppClient.close().catch(e => console.error('Erro ao fechar cliente:', e.message));
                 wppClient = null;
-                lastQR = null;
-                lastStatus = 'loading';
-                io.emit('status', 'loading');
-                initWhatsApp();
-            } catch (e) {
-                console.error('Erro ao reiniciar sessão:', e);
-                initWhatsApp();
             }
-        } else {
+            lastQR = null;
+            lastStatus = 'loading';
+            io.emit('status', 'loading');
+            // Pequeno delay para garantir que processos do SO sejam liberados
+            setTimeout(() => initWhatsApp(), 2000);
+        } catch (e) {
+            console.error('Erro no fluxo de reinicialização:', e);
             initWhatsApp();
         }
     });
