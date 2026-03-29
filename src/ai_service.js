@@ -24,7 +24,8 @@ async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
             headers: {
                 ...formData.getHeaders(),
                 'Authorization': `Bearer ${GROQ_KEY}`
-            }
+            },
+            timeout: 30000 // 30 segundos
         });
 
         return response.data.text;
@@ -85,7 +86,8 @@ async function getMotelAIResponse(userText, history = []) {
                 temperature: 0.7,
                 max_tokens: 1024
             }, {
-                headers: { 'Authorization': `Bearer ${GROQ_KEY}` }
+                headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
+                timeout: 30000 // 30 segundos
             });
 
             return response.data.choices[0].message.content;

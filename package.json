@@ -4,7 +4,7 @@
   "description": "WhatsApp Automation for Motel Intensy",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node --max-old-space-size=512 src/index.js",
     "dev": "nodemon src/index.js",
     "test:flow": "node scripts/test_flow.js"
   },

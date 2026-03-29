@@ -16,6 +16,37 @@ let lastQR = null;
 let lastStatus = 'loading';
 let wppClient = null;
 
+// Monitoramento de Memória (Log a cada 1 hora no console)
+setInterval(() => {
+    const used = process.memoryUsage();
+    console.log(`[MONITOR] RAM: RSS ${Math.round(used.rss / 1024 / 1024 * 100) / 100}MB, Heap ${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100}MB`);
+}, 60 * 60 * 1000);
+
+// Limpeza diária de arquivos temporários (para evitar encher o disco da VPS)
+setInterval(() => {
+    const tempPath = path.join(__dirname, '..', 'temp');
+    if (fs.existsSync(tempPath)) {
+        console.log('[CLEANUP] Limpando pasta temp...');
+        try {
+            const files = fs.readdirSync(tempPath);
+            for (const file of files) {
+                fs.unlinkSync(path.join(tempPath, file));
+            }
+        } catch (e) { console.error('Erro na limpeza temp:', e); }
+    }
+}, 24 * 60 * 60 * 1000);
+
+// Tratamento Global de Erros para Evitar Travamentos Silenciosos
+process.on('uncaughtException', (err) => {
+    console.error('[CRITICAL] Uncaught Exception:', err);
+    process.exit(1); // Força reinício pelo Docker
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1); // Força reinício pelo Docker
+});
+
 const PORT = process.env.PORT || 3001;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || 'admin';
