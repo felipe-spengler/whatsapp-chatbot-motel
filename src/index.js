@@ -83,14 +83,34 @@ app.post('/login', (req, res) => {
 
 async function initWhatsApp() {
     try {
-        // Limpar trava do Chromium se o container caiu e deixou sujeira
-        const lockFile = path.join(__dirname, '..', 'tokens', (process.env.SESSION_NAME || 'motel-intensy'), 'SingletonLock');
-        if (fs.existsSync(lockFile)) {
-            try { fs.unlinkSync(lockFile); console.log('Trava de sessão antiga removida.'); } catch (e) {}
+        const sessionName = process.env.SESSION_NAME || 'motel-intensy';
+        const sessionPath = path.join(__dirname, '..', 'tokens', sessionName);
+        
+        console.log(`[INIT] Iniciando sessão: ${sessionName}`);
+        console.log(`[INIT] Caminho da sessão: ${sessionPath}`);
+
+        // Limpeza robusta de travas do Chromium (essencial para Docker/VPS)
+        if (fs.existsSync(sessionPath)) {
+            const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+            const targets = [
+                ...lockFiles.map(f => path.join(sessionPath, f)),
+                ...lockFiles.map(f => path.join(sessionPath, 'Default', f))
+            ];
+            
+            targets.forEach(filePath => {
+                if (fs.existsSync(filePath)) {
+                    try {
+                        fs.unlinkSync(filePath);
+                        console.log(`[CLEANUP] Arquivo de trava removido: ${path.basename(filePath)} (${filePath.includes('Default') ? 'Default' : 'Root'})`);
+                    } catch (e) {
+                        console.error(`[CLEANUP] Erro ao remover ${filePath}:`, e.message);
+                    }
+                }
+            });
         }
 
         const client = await wppconnect.create({
-            session: process.env.SESSION_NAME || 'motel-intensy',
+            session: sessionName,
             catchQR: (base64Qrimg) => {
                 lastQR = base64Qrimg;
                 lastStatus = 'qr';
@@ -105,7 +125,7 @@ async function initWhatsApp() {
                 console.log('Status Session:', statusSession);
             },
             headless: 'new',
-            useChrome: true,
+            useChrome: false, // Forçar Chromium interno do Puppeteer para maior compatibilidade no Docker
             autoClose: 0,
             browserArgs: [
                 '--no-sandbox',
@@ -155,8 +175,31 @@ async function initWhatsApp() {
     } catch (error) {
         console.error('WPP Error:', error);
         io.emit('status', 'error');
+        
+        // Se falhou por causa do browser, tenta limpar e reiniciar uma vez após 5s
+        if (error.message.includes('launch the browser')) {
+            console.log('Tentando auto-recuperação em 10 segundos...');
+            setTimeout(() => initWhatsApp(), 10000);
+        }
     }
 }
+
+// Graceful Shutdown - Crucial para não deixar travas no Chromium
+const handleShutdown = async (signal) => {
+    console.log(`\n[SHUTDOWN] Sinal ${signal} recebido. Fechando processos...`);
+    if (wppClient) {
+        try {
+            await wppClient.close();
+            console.log('[SHUTDOWN] Cliente WPP fechado com sucesso.');
+        } catch (e) {
+            console.error('[SHUTDOWN] Erro ao fechar cliente WPP:', e.message);
+        }
+    }
+    process.exit(0);
+};
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 io.on('connection', (socket) => {
     console.log('Painel Admin conectado:', socket.id);
