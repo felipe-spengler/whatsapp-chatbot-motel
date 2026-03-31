@@ -11,9 +11,6 @@ services:
     volumes:
       - ./sessions:/app/tokens
       - ./temp:/app/temp
-      - ./src:/app/src
-      - ./prompt_ia.txt:/app/prompt_ia.txt
-      - ./models.json:/app/models.json
     deploy:
       resources:
         limits:
