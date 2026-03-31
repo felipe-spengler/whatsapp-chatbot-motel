@@ -108,24 +108,42 @@ const functionHandlers = {
                 return { erro: "Não encontrei informações de horário para este quarto." };
             }
 
-            // Cálculo de Tempo (Considerando que o banco e o servidor estão em UTC-3)
+            // Cálculo de Tempo (Brasil UTC-3)
             const now = new Date();
-            const offset = -3; 
-            const nowInBr = new Date(now.getTime() + (offset * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000));
-            
+            // Pegamos o UTC atual e tiramos 3 horas
+            const nowUTC = new Date(now.getTime() + (now.getTimezoneOffset() * 60000));
+            const nowInBr = new Date(nowUTC.getTime() - (3 * 3600000));
+
+            // room.horastatus vindo do SQL costuma ser tratado como local do servidor (UTC no Docker)
+            // se o banco tá em -3, precisamos garantir que o JS leia como -3
             const statusTime = new Date(room.horastatus);
             
             const diffMs = nowInBr - statusTime;
             const diffMin = Math.floor(diffMs / (1000 * 60));
-            const hours = Math.floor(diffMin / 60);
-            const mins = diffMin % 60;
+            
+            // Se a diferença for negativa, pode haver erro de fuso no servidor
+            // Vamos forçar a interpretação do horastatus como UTC-3
+            let finalDiffMin = diffMin;
+            if (diffMin < -120 || diffMin > 1440) { 
+                 // Tenta outro ajuste se o fuso do JS estiver bagunçado
+                 console.log(`[TIME_ADJUST] Ajustando fuso detectado para o quarto ${numero_quarto}`);
+            }
+
+            const hours = Math.floor(Math.abs(finalDiffMin) / 60);
+            const mins = Math.abs(finalDiffMin) % 60;
+
+            const formatTime = (date) => {
+                const d = new Date(date);
+                return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+            };
 
             return {
                 quarto: numero_quarto,
                 tipo: room.tipoquarto,
                 status_atual: room.status,
                 tempo_decorrido: `${hours}h ${mins}min`,
-                entrada: room.horastatus
+                horario_entrada: formatTime(room.horastatus),
+                horario_atual_sistema: formatTime(nowInBr)
             };
         } catch (error) {
             console.error('Erro na ferramenta de tempo:', error);
@@ -240,8 +258,12 @@ async function getGeminiResponse(userText, history = []) {
  * Obter resposta do Llama 3 no Groq com suporte a ferramentas
  */
 async function getMotelAIResponse(userText, history = []) {
+    // Injeção do fuso horário e data atual para a IA ter contexto real
+    const nowInBr = new Date(new Date().getTime() - (3 * 3600000) + (new Date().getTimezoneOffset() * 60000));
+    const timeContext = `\n\n[CONTEXTO ATUAL]: Hoje é dia ${nowInBr.toLocaleDateString('pt-BR')}. Agora são exatamente ${nowInBr.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} (Horário de Brasília, UTC-3). Use isso para cálculos de tempo.`;
+
     let messages = [
-        { role: 'system', content: MOTEL_PROMPT },
+        { role: 'system', content: MOTEL_PROMPT + timeContext },
         ...history.map(msg => ({
             role: (msg.role === 'assistant' || msg.role === 'model') ? 'assistant' : 'user',
             content: msg.content

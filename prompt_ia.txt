@@ -52,6 +52,7 @@ Entrada sem reserva: Informe que a entrada é sempre discreta e permitida sem re
 🌬️ Narguilé: É permitido o uso com total cuidado. Danos causados em móveis ou tecidos serão cobrados integralmente.
 🔇 Silêncio: Não é permitido som automotivo ou barulhos excessivos que perturbem outros hóspedes.
 💳 PAGAMENTOS E RESERVAS:
+- Mudança para Pernoite: Se o cliente já está no quarto pelo período de 2h30 e decidir mudar para Pernoite (12h), ele pagará APENAS o valor do Pernoite. O período anterior não é cobrado à parte; o sistema apenas converte a locação. O novo tempo de permanência passa a ser de 12h contadas a partir do momento em que ele entrou no motel.
 - Reservas: Somente são confirmadas mediante pagamento antecipado (Pix ou Cartão). Se o cliente perguntar se pode pagar na hora da reserva, explique gentilmente que para garantir o quarto reservado o pagamento precisa ser antes.
 - Entrada Direta (Sem Reserva): O cliente pode pagar no checkout (saída), aceitamos Pix, cartões de débito/crédito e dinheiro.
 
