@@ -130,10 +130,21 @@ async function handleMessage(client, message) {
         if (session.history.length > 20) session.history.shift();
 
         // Verificação de Transferência (Notificação para o Humano)
-        const transferKeywords = ['atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente'];
-        const userAskedForHuman = transferKeywords.some(kw => text.toLowerCase().includes(kw));
+        const textLower = text.toLowerCase();
+        const transferKeywords = [
+            'atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente',
+            'falar com alguem', 'ajuda'
+        ];
+        const actionKeywords = [
+            'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão', 
+            'quero sair', 'liberar saída', 'liberar saida', 'checkout agora',
+            'pedir saída', 'pedir saida'
+        ];
+
+        const userAskedForHuman = transferKeywords.some(kw => textLower.includes(kw));
+        const userRequestedAction = actionKeywords.some(kw => textLower.includes(kw));
         
-        if (userAskedForHuman || aiResponse.includes("Vou te transferir")) {
+        if (userAskedForHuman || userRequestedAction || aiResponse.includes("Vou te transferir") || aiResponse.includes("atendente foi notificado")) {
             try {
                 await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
                 console.log(`[NOTIFICAÇÃO] Aviso de transferência enviado para o Admin.`);

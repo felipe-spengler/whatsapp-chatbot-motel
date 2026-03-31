@@ -20,7 +20,7 @@ const tools = [
         type: 'function',
         function: {
             name: 'verificar_disponibilidade_real',
-            description: 'Consulta o banco de dados do motel para ver quais quartos estão livres, ocupados, em limpeza ou manutenção, além de ver os preços atuais.',
+            description: 'Consulta o banco de dados para ver quais tipos de quartos estão livres e seus preços. Retorna apenas as categorias com unidades disponíveis.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -31,6 +31,23 @@ const tools = [
                 }
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'verificar_tempo_permanencia',
+            description: 'Calcula há quanto tempo um quarto está no status atual (útil para saber tempo de ocupação ou limpeza).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    numero_quarto: {
+                        type: 'number',
+                        description: 'O número do quarto (ex: 10, 22).'
+                    }
+                },
+                required: ['numero_quarto']
+            }
+        }
     }
 ];
 
@@ -38,32 +55,81 @@ const tools = [
  * Mapeamento das funções para execução
  */
 const functionHandlers = {
-    verificar_disponibilidade_real: async ({ tipo }) => {
+    verificar_disponibilidade_real: async (args) => {
+        const tipo = args?.tipo;
         try {
             const rooms = await db.getFullRoomsStatus();
-            let filteredRooms = rooms;
             
+            // Focamos apenas em quartos LIVRES por solicitação do usuário
+            const freeRooms = rooms.filter(r => r.status === 'livre');
+            
+            let filteredRooms = freeRooms;
             if (tipo) {
-                filteredRooms = rooms.filter(r => 
+                filteredRooms = freeRooms.filter(r => 
                     r.tipoquarto.toLowerCase().includes(tipo.toLowerCase())
                 );
             }
 
-            // Traduzir status para algo amigável se necessário e formatar
-            const response = filteredRooms.map(r => ({
-                quarto: r.numeroquarto,
-                tipo: r.tipoquarto,
-                status: r.status === 'livre' ? 'LIVRE (Disponível agora)' : r.status,
-                valor_2h30: `R$ ${r.valorquarto}`,
-                valor_pernoite: `R$ ${r.pernoitequarto}`
-            }));
+            // Apenas listar os tipos únicos disponíveis (sem quantidade)
+            const availableTypes = [...new Set(filteredRooms.map(r => r.tipoquarto))];
+
+            if (availableTypes.length === 0) {
+                return { mensagem: "No momento não temos quartos deste tipo disponíveis." };
+            }
 
             return {
-                mensagem: `Aqui está a situação atual dos quartos ${tipo ? `do tipo ${tipo}` : ''}:`,
-                dados: response
+                mensagem: "No momento temos as seguintes categorias disponíveis para você:",
+                categorias: availableTypes
             };
         } catch (error) {
+            console.error('Erro na ferramenta de disponibilidade:', error);
             return { erro: 'Não foi possível consultar o banco de dados no momento.' };
+        }
+    },
+
+    verificar_tempo_permanencia: async ({ numero_quarto }) => {
+        try {
+            const rooms = await db.getFullRoomsStatus();
+            const room = rooms.find(r => r.numeroquarto == numero_quarto);
+
+            if (!room) {
+                return { erro: `Não encontrei o quarto número ${numero_quarto} no sistema.` };
+            }
+
+            const statusOcupado = ['ocupado-periodo', 'ocupado-pernoite'];
+            if (!statusOcupado.includes(room.status)) {
+                return { 
+                    mensagem: `O quarto ${numero_quarto} não consta como ocupado no momento.`,
+                    alerta: "O cálculo de tempo só funciona para quartos ocupados (período ou pernoite)."
+                };
+            }
+
+            if (!room.horastatus) {
+                return { erro: "Não encontrei informações de horário para este quarto." };
+            }
+
+            // Cálculo de Tempo (Considerando que o banco e o servidor estão em UTC-3)
+            const now = new Date();
+            const offset = -3; 
+            const nowInBr = new Date(now.getTime() + (offset * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000));
+            
+            const statusTime = new Date(room.horastatus);
+            
+            const diffMs = nowInBr - statusTime;
+            const diffMin = Math.floor(diffMs / (1000 * 60));
+            const hours = Math.floor(diffMin / 60);
+            const mins = diffMin % 60;
+
+            return {
+                quarto: numero_quarto,
+                tipo: room.tipoquarto,
+                status_atual: room.status,
+                tempo_decorrido: `${hours}h ${mins}min`,
+                entrada: room.horastatus
+            };
+        } catch (error) {
+            console.error('Erro na ferramenta de tempo:', error);
+            return { erro: 'Erro ao calcular tempo.' };
         }
     }
 };
@@ -105,12 +171,23 @@ async function getGeminiResponse(userText, history = []) {
                 functionDeclarations: [
                     {
                         name: 'verificar_disponibilidade_real',
-                        description: 'Consulta o banco de dados do motel para ver a disponibilidade e preços dos quartos em tempo real.',
+                        description: 'Consulta o banco de dados do motel para ver a disponibilidade e preços dos quartos em tempo real por categoria.',
                         parameters: {
                             type: 'OBJECT',
                             properties: {
                                 tipo: { type: 'STRING', description: 'Filtro por tipo de quarto' }
                             }
+                        }
+                    },
+                    {
+                        name: 'verificar_tempo_permanencia',
+                        description: 'Calcula há quanto tempo um quarto específico está no status atual.',
+                        parameters: {
+                            type: 'OBJECT',
+                            properties: {
+                                numero_quarto: { type: 'NUMBER', description: 'Número do quarto' }
+                            },
+                            required: ['numero_quarto']
                         }
                     }
                 ]
