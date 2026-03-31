@@ -91,22 +91,34 @@ async function initWhatsApp() {
 
         // Limpeza robusta de travas do Chromium (essencial para Docker/VPS)
         if (fs.existsSync(sessionPath)) {
-            const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-            const targets = [
-                ...lockFiles.map(f => path.join(sessionPath, f)),
-                ...lockFiles.map(f => path.join(sessionPath, 'Default', f))
-            ];
-            
-            targets.forEach(filePath => {
-                if (fs.existsSync(filePath)) {
-                    try {
-                        fs.unlinkSync(filePath);
-                        console.log(`[CLEANUP] Arquivo de trava removido: ${path.basename(filePath)} (${filePath.includes('Default') ? 'Default' : 'Root'})`);
-                    } catch (e) {
-                        console.error(`[CLEANUP] Erro ao remover ${filePath}:`, e.message);
-                    }
+            try {
+                const files = fs.readdirSync(sessionPath);
+                console.log(`[INIT] Arquivos na pasta da sessão: ${files.join(', ')}`);
+                
+                // Tentativa de remover usando comando do sistema para ser mais incisivo com links simbólicos
+                const { execSync } = require('child_process');
+                try {
+                    execSync(`rm -f ${path.join(sessionPath, 'Singleton*')}`);
+                    execSync(`rm -f ${path.join(sessionPath, 'Default', 'Singleton*')}`);
+                    console.log(`[CLEANUP] Comando de limpeza executado.`);
+                } catch (cmdErr) {
+                    // Fallback manual se o rm falhar
+                    const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+                    lockFiles.forEach(file => {
+                        [sessionPath, path.join(sessionPath, 'Default')].forEach(dir => {
+                            const filePath = path.join(dir, file);
+                            if (fs.existsSync(filePath)) {
+                                fs.unlinkSync(filePath);
+                                console.log(`[CLEANUP] Limpeza manual: ${filePath}`);
+                            }
+                        });
+                    });
                 }
-            });
+            } catch (e) {
+                console.error(`[INIT] Erro ao ler pasta da sessão:`, e.message);
+            }
+        } else {
+            console.log(`[INIT] Pasta da sessão não existe ainda (será criada): ${sessionPath}`);
         }
 
         const client = await wppconnect.create({
