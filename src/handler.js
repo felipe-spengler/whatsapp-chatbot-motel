@@ -153,14 +153,23 @@ async function handleMessage(client, message) {
             }
         }
 
-        // Simulação Humana e Envio
+        // Simulação Humana e Envio (Fuzzy Delay)
+        // 1. Atraso de "Leitura" (Pausa antes de começar a digitar)
+        const readingDelay = 2000 + (Math.random() * 2000); // 2 a 4 segundos
+        await new Promise(r => setTimeout(r, readingDelay));
+
         await client.startTyping(from);
-        await new Promise(r => setTimeout(r, 2000));
+        
+        // 2. Atraso de "Escrita" (Cálculo baseado no tamanho da resposta da IA)
+        const typingDelay = Math.min(Math.max(aiResponse.length * 15, 2000), 5000);
+        const randomFuzzy = Math.random() * 1500; 
+        
+        await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
 
         await client.sendText(from, aiResponse);
 
-        session.lastBotSentTime = Date.now(); // Marca o tempo do envio
-        session.lastSender = 'bot';           // Garante que o bot é o último a falar
+        session.lastBotSentTime = Date.now();
+        session.lastSender = 'bot';
         await client.stopTyping(from);
 
     } catch (error) {
