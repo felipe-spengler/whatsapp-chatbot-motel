@@ -129,11 +129,17 @@ async function handleMessage(client, message) {
         session.history.push({ role: 'user', content: text }, { role: 'assistant', content: aiResponse });
         if (session.history.length > 20) session.history.shift();
 
-        // Verificação de Transferência
+        // Verificação de Transferência (Notificação para o Humano)
         const transferKeywords = ['atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente'];
         const userAskedForHuman = transferKeywords.some(kw => text.toLowerCase().includes(kw));
+        
         if (userAskedForHuman || aiResponse.includes("Vou te transferir")) {
-            await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
+            try {
+                await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
+                console.log(`[NOTIFICAÇÃO] Aviso de transferência enviado para o Admin.`);
+            } catch (notifErr) {
+                console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin. Verifique o número no .env:', notifErr.message);
+            }
         }
 
         // Simulação Humana e Envio
