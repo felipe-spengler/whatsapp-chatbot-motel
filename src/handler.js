@@ -17,9 +17,18 @@ setInterval(() => {
 }, 15 * 60 * 1000);
 
 async function handleMessage(client, message) {
+    console.log(`[DEBUG] Mensagem recebida de ${message.from}: "${message.body}" (fromMe: ${message.fromMe})`);
+
     // 1. Filtros Básicos
-    if (!message.from || message.isGroupMsg || message.from.includes('broadcast')) return;
-    if (message.timestamp < startTime) return;
+    if (!message.from || message.isGroupMsg || message.from.includes('broadcast')) {
+        console.log(`[DEBUG] Ignorada: Grupo, broadcast ou sem remetente.`);
+        return;
+    }
+
+    if (message.timestamp < startTime) {
+        console.log(`[DEBUG] Ignorada: Mensagem antiga (${message.timestamp} < ${startTime}).`);
+        return;
+    }
 
     const from = message.from;
 
@@ -42,7 +51,7 @@ async function handleMessage(client, message) {
     // 3. Trava de Intervenção Humana (5 minutos)
     const fiveMinutes = 5 * 60 * 1000;
     if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
-        console.log(`Atendimento humano detectado para ${from}. AI silenciada.`);
+        console.log(`[DEBUG] AI Silenciada por intervenção humana em ${from}.`);
         return;
     }
 

@@ -11,13 +11,16 @@ services:
     volumes:
       - ./sessions:/app/tokens
       - ./temp:/app/temp
+      - ./src:/app/src
+      - ./prompt_ia.txt:/app/prompt_ia.txt
+      - ./models.json:/app/models.json
     deploy:
       resources:
         limits:
-          cpus: '0.50'
-          memory: 1024M
+          cpus: '1.0'
+          memory: 2048M
         reservations:
-          memory: 512M
+          memory: 1024M
     logging:
       driver: "json-file"
       options:

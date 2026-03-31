@@ -138,7 +138,7 @@ async function initWhatsApp() {
             },
             headless: 'new',
             useChrome: false, // Forçar Chromium interno do Puppeteer para maior compatibilidade no Docker
-            autoClose: 0,
+            autoClose: 600000,
             browserArgs: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
