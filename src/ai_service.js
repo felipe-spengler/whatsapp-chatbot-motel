@@ -9,6 +9,7 @@ const db = require('./db_service');
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
 const PRECO_PERIODO = fs.readFileSync(path.join(__dirname, '..', 'preco_periodo.txt'), 'utf8');
 const PRECO_PERNOITE = fs.readFileSync(path.join(__dirname, '..', 'preco_pernoite.txt'), 'utf8');
+const PRICE_CONTEXT = `\n\n[TABELA DE PREÇOS]:\nPeríodo (2h30):\n${PRECO_PERIODO}\n\nPernoite (12h):\n${PRECO_PERNOITE}\n`;
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = 'https://api.groq.com/openai/v1';
@@ -322,4 +323,4 @@ async function getGeminiResponse(userText, history = []) {
     return result.response.text();
 }
 
-module.exports = { getMotelAIResponse, transcribeAudio, getDynamicContext, PRICE_CONTEXT };
+module.exports = { getMotelAIResponse, transcribeAudio, getDynamicContext };

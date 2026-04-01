@@ -1,7 +1,7 @@
 const { getMotelAIResponse, transcribeAudio } = require('./ai_service');
 
 const sessions = {};
-const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER || '554999459490').replace(/\D/g, '');
+const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER).replace(/\D/g, '');
 const startTime = Math.floor(Date.now() / 1000);
 
 // Limpeza de sessões inativas a cada 15 minutos
@@ -136,14 +136,14 @@ async function handleMessage(client, message) {
             'falar com alguem', 'ajuda'
         ];
         const actionKeywords = [
-            'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão', 
+            'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão',
             'quero sair', 'liberar saída', 'liberar saida', 'checkout agora',
             'pedir saída', 'pedir saida'
         ];
 
         const userAskedForHuman = transferKeywords.some(kw => textLower.includes(kw));
         const userRequestedAction = actionKeywords.some(kw => textLower.includes(kw));
-        
+
         if (userAskedForHuman || userRequestedAction || aiResponse.includes("Vou te transferir") || aiResponse.includes("atendente foi notificado")) {
             try {
                 await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
@@ -159,11 +159,11 @@ async function handleMessage(client, message) {
         await new Promise(r => setTimeout(r, readingDelay));
 
         await client.startTyping(from);
-        
+
         // 2. Atraso de "Escrita" (Cálculo baseado no tamanho da resposta da IA)
         const typingDelay = Math.min(Math.max(aiResponse.length * 15, 2000), 5000);
-        const randomFuzzy = Math.random() * 1500; 
-        
+        const randomFuzzy = Math.random() * 1500;
+
         await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
 
         await client.sendText(from, aiResponse);
