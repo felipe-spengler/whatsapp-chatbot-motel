@@ -193,9 +193,71 @@ const functionHandlers = {
     }
 };
 
-// ===== IA PRINCIPAL =====
-async function getMotelAIResponse(userText, history = []) {
+// ===== FALLBACK =====
+async function getGeminiResponse(userText, history = []) {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const dynamicContext = await getDynamicContext(userText);
 
+        const chat = model.startChat({
+            history: [
+                { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
+                ...history.slice(-3).map(m => ({
+                    role: m.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: m.content }]
+                }))
+            ]
+        });
+
+        const result = await chat.sendMessage(userText);
+        let text = result.response.text() || "";
+        
+        // Se o Gemini tentar usar o pseudo-formato de função, extraímos e limpamos
+        if (text.includes('<function=')) {
+            const regex = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
+            let match;
+            let capturedCalls = [];
+            while ((match = regex.exec(text)) !== null) {
+                capturedCalls.push({ name: match[1], args: match[2] });
+            }
+            
+            // Limpa do texto original
+            text = text.replace(regex, '').trim();
+            
+            // Se encontrou chamadas, vamos executá-las e repassar pro Gemini
+            if (capturedCalls.length > 0) {
+                let toolResponses = "";
+                for (const call of capturedCalls) {
+                    let args = {};
+                    try { args = JSON.parse(call.args); } catch(e) {}
+                    const result = await functionHandlers[call.name] ? await functionHandlers[call.name](args) : { erro: "Ferramenta não encontrada" };
+                    toolResponses += `\n[Resultado da função ${call.name}]: ${JSON.stringify(result)}\n`;
+                }
+                
+                // Manda o resultado da ferramenta silenciosamente no mesmo chat e retorna a nova resposta
+                const secondResult = await chat.sendMessage(`Você executou funções internamente. Aqui estão os resultados. Use-os para responder ao cliente de forma natural, sem exibir tags: ${toolResponses}`);
+                text = secondResult.response.text() || "";
+            }
+        }
+        
+        return text.replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '').trim();
+    } catch (error) {
+        console.error("Gemini Fallback Error:", error.message);
+        return "Desculpe, estou passando por uma instabilidade técnica no sistema. Um atendente já vai te ajudar! 🌸";
+    }
+}
+
+// Wrapper final para garantir que em hipótese alguma o texto vaze
+async function safeGetMotelAIResponse(userText, history) {
+    let result = await getMotelAIResponseInternal(userText, history);
+    if (typeof result === 'string') {
+        result = result.replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '').trim();
+    }
+    return result;
+}
+
+// Renomeia a função principal original
+async function getMotelAIResponseInternal(userText, history = []) {
     if (!history || history.length === 0 || userText.toLowerCase().trim() === 'menu') {
         return menuInicial();
     }
@@ -269,7 +331,6 @@ async function getMotelAIResponse(userText, history = []) {
         }
 
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-            // Garante que a mensagem salva no histórico tenha um content válido (mesmo vazio) para a próxima requisição não falhar
             const assistantMsg = { ...msg };
             if (!assistantMsg.content) assistantMsg.content = "";
             messages.push(assistantMsg);
@@ -277,9 +338,8 @@ async function getMotelAIResponse(userText, history = []) {
             for (const call of msg.tool_calls) {
                 const fn = call.function.name;
                 const argsStr = call.function.arguments;
-                // Tratamento caso os argumentos não sejam um JSON perfeito
                 let args = {};
-                try { args = JSON.parse(argsStr); } catch(e) { console.error('Erro parser args:', argsStr); }
+                try { args = JSON.parse(argsStr); } catch(e) { }
                 
                 const result = await functionHandlers[fn] ? await functionHandlers[fn](args) : { erro: "Ferramenta não encontrada" };
 
@@ -299,13 +359,10 @@ async function getMotelAIResponse(userText, history = []) {
                 headers: { Authorization: `Bearer ${GROQ_KEY}` }
             });
 
-            // Retorna limpando qualquer resíduo de function que possa ter vazado na segunda resposta
-            let finalContent = second.data.choices[0].message.content || "";
-            return finalContent.replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '').trim();
+            return second.data.choices[0].message.content || "";
         }
 
-        let mainContent = msg.content || "";
-        return mainContent.replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '').trim();
+        return msg.content || "";
 
     } catch (err) {
         console.error('[GROQ API ERROR]:', err.response ? err.response.data : err.message);
@@ -335,28 +392,4 @@ async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
     }
 }
 
-// ===== FALLBACK =====
-async function getGeminiResponse(userText, history = []) {
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const dynamicContext = await getDynamicContext(userText);
-
-        const chat = model.startChat({
-            history: [
-                { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
-                ...history.slice(-3).map(m => ({
-                    role: m.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: m.content }]
-                }))
-            ]
-        });
-
-        const result = await chat.sendMessage(userText);
-        return result.response.text();
-    } catch (error) {
-        console.error("Gemini Fallback Error:", error.message);
-        return "Desculpe, estou passando por uma instabilidade técnica no sistema. Um atendente já vai te ajudar! 🌸";
-    }
-}
-
-module.exports = { getMotelAIResponse, transcribeAudio, getDynamicContext };
+module.exports = { getMotelAIResponse: safeGetMotelAIResponse, transcribeAudio, getDynamicContext };
