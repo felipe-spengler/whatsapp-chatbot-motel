@@ -5,45 +5,140 @@ const FormData = require('form-data');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const db = require('./db_service');
 
-// Carregar o prompt do arquivo txt
+// ===== PROMPTS =====
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
+const PRECO_PERIODO = fs.readFileSync(path.join(__dirname, '..', 'preco_periodo.txt'), 'utf8');
+const PRECO_PERNOITE = fs.readFileSync(path.join(__dirname, '..', 'preco_pernoite.txt'), 'utf8');
+
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = 'https://api.groq.com/openai/v1';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// ===== CACHE DISPONIBILIDADE =====
+let availabilityCache = { data: '', lastUpdate: 0 };
+const CACHE_TTL = 60000;
+
+// ===== MENU =====
+function menuInicial() {
+    return `Posso te ajudar com algumas opções ✨
+
+1️⃣ Valores para período (2h30)
+2️⃣ Valores para pernoite (12h)
+3️⃣ Tirar uma dúvida
+4️⃣ Fazer uma reserva
+
+Se preferir, pode me dizer direto o que precisa 💖`;
+}
+
+// ===== INTERPRETAR MENU =====
+function interpretarMenu(msg) {
+    const t = msg.toLowerCase().trim();
+    
+    // Evita acionar o menu se o usuário enviou uma frase longa
+    if (msg.length > 25) return null;
+
+    if (t === "1" || t.includes("periodo") || t.includes("2h") || t.includes("2:30")) return "periodo";
+    if (t === "2" || t.includes("pernoite") || t.includes("12h")) return "pernoite";
+    if (t === "3" || t.includes("duvida")) return "duvida";
+    if (t === "4" || t.includes("reserva")) return "reserva";
+
+    return null;
+}
+
+// ===== RESPOSTAS DIRETAS =====
+function respostaDireta(msg) {
+    const t = msg.toLowerCase().trim();
+
+    if (["ok", "blz", "beleza", "isso"].includes(t)) {
+        return "Perfeito! 😊";
+    }
+
+    if (t.includes("obrigado") || t.includes("valeu")) {
+        return "Imagina! Fico à disposição 💖";
+    }
+
+    if (t.includes("hora extra")) {
+        return "Hora extra: Apartamento +R$20/h | Suítes +R$30/h ✨";
+    }
+
+    if (t.includes("3 pessoas") || t.includes("mais pessoas")) {
+        return "Após a 2ª pessoa, é cobrado R$ 30 por pessoa adicional 💖";
+    }
+
+    return null;
+}
+
+// ===== DETECÇÃO PREÇO =====
+function detectarPreco(msg) {
+    const t = msg.toLowerCase();
+    
+    // Se a mensagem for muito longa, provavelmente é uma dúvida mais complexa. Deixa a IA resolver.
+    if (msg.length > 30) return { geral: false, periodo: false, pernoite: false };
+
+    return {
+        geral: /(preço|valor|quanto)/.test(t),
+        periodo: /(2h|2:30|periodo)/.test(t),
+        pernoite: /(pernoite|12h)/.test(t)
+    };
+}
+
 /**
- * Definição das ferramentas (functions) que a IA pode chamar
+ * Função inteligente para obter o contexto de preços e disponibilidade apenas quando necessário
  */
+async function getDynamicContext(userText) {
+    const textLower = userText.toLowerCase();
+    
+    const triggerKeywords = [
+        'tem', 'vago', 'disponivel', 'disponibilidade', 'quarto', 'suite', 'apto', 
+        'valor', 'preço', 'preco', 'quanto', 'reserva', 'período', 'periodo', 'pernoite', 'menu'
+    ];
+
+    const needsContext = triggerKeywords.some(kw => textLower.includes(kw));
+    
+    if (!needsContext && userText !== "[FORÇA_CONTEXTO]") return '';
+
+    let context = PRICE_CONTEXT;
+
+    const now = Date.now();
+    
+    if (availabilityCache.data && (now - availabilityCache.lastUpdate < CACHE_TTL)) {
+        return context + availabilityCache.data;
+    }
+
+    try {
+        const rooms = await db.getFullRoomsStatus();
+        const freeRooms = rooms.filter(r => r.status === 'livre');
+        const availableTypes = [...new Set(freeRooms.map(r => r.tipoquarto))];
+        
+        let avContext = '';
+        if (availableTypes.length > 0) {
+            avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos livres: ${availableTypes.join(', ')}.`;
+        } else {
+            avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
+        }
+
+        availabilityCache = {
+            data: avContext,
+            lastUpdate: now
+        };
+        
+        return context + avContext;
+    } catch (dbError) {
+        return context + (availabilityCache.data || ''); 
+    }
+}
+
+// ===== TOOLS =====
 const tools = [
     {
         type: 'function',
         function: {
-            name: 'verificar_disponibilidade_real',
-            description: 'Consulta o banco de dados para ver quais tipos de quartos estão livres e seus preços. Retorna apenas as categorias com unidades disponíveis.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    tipo: {
-                        type: 'string',
-                        description: 'Opcional. Filtro pelo tipo de quarto (ex: "Apartamento", "Suite").'
-                    }
-                }
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
             name: 'verificar_tempo_permanencia',
-            description: 'Calcula há quanto tempo um quarto está no status atual (útil para saber tempo de ocupação ou limpeza).',
             parameters: {
                 type: 'object',
                 properties: {
-                    numero_quarto: {
-                        type: 'number',
-                        description: 'O número do quarto (ex: 10, 22).'
-                    }
+                    numero_quarto: { type: 'number' }
                 },
                 required: ['numero_quarto']
             }
@@ -51,91 +146,36 @@ const tools = [
     }
 ];
 
-/**
- * Mapeamento das funções para execução
- */
 const functionHandlers = {
-    verificar_disponibilidade_real: async (args) => {
-        const tipo = args?.tipo;
-        try {
-            const rooms = await db.getFullRoomsStatus();
-            
-            // Focamos apenas em quartos LIVRES por solicitação do usuário
-            const freeRooms = rooms.filter(r => r.status === 'livre');
-            
-            let filteredRooms = freeRooms;
-            if (tipo) {
-                filteredRooms = freeRooms.filter(r => 
-                    r.tipoquarto.toLowerCase().includes(tipo.toLowerCase())
-                );
-            }
-
-            // Apenas listar os tipos únicos disponíveis (sem quantidade)
-            const availableTypes = [...new Set(filteredRooms.map(r => r.tipoquarto))];
-
-            if (availableTypes.length === 0) {
-                return { mensagem: "No momento não temos quartos deste tipo disponíveis." };
-            }
-
-            return {
-                mensagem: "No momento temos as seguintes categorias disponíveis para você:",
-                categorias: availableTypes
-            };
-        } catch (error) {
-            console.error('Erro na ferramenta de disponibilidade:', error);
-            return { erro: 'Não foi possível consultar o banco de dados no momento.' };
-        }
-    },
-
     verificar_tempo_permanencia: async ({ numero_quarto }) => {
         try {
             const rooms = await db.getFullRoomsStatus();
             const room = rooms.find(r => r.numeroquarto == numero_quarto);
 
-            if (!room) {
-                return { erro: `Não encontrei o quarto número ${numero_quarto} no sistema.` };
-            }
+            if (!room) return { erro: `Não encontrei o quarto número ${numero_quarto} no sistema.` };
 
             const statusOcupado = ['ocupado-periodo', 'ocupado-pernoite'];
             if (!statusOcupado.includes(room.status)) {
-                return { 
+                return {
                     mensagem: `O quarto ${numero_quarto} não consta como ocupado no momento.`,
-                    alerta: "O cálculo de tempo só funciona para quartos ocupados (período ou pernoite)."
+                    alerta: "O cálculo de tempo só funciona para quartos ocupados."
                 };
             }
 
-            if (!room.horastatus) {
-                return { erro: "Não encontrei informações de horário para este quarto." };
-            }
+            if (!room.horastatus) return { erro: "Não encontrei horários para este quarto." };
 
-            // Cálculo de Tempo (Brasil UTC-3)
             const now = new Date();
-            // Pegamos o UTC atual e tiramos 3 horas
             const nowUTC = new Date(now.getTime() + (now.getTimezoneOffset() * 60000));
             const nowInBr = new Date(nowUTC.getTime() - (3 * 3600000));
-
-            // room.horastatus vindo do SQL costuma ser tratado como local do servidor (UTC no Docker)
-            // se o banco tá em -3, precisamos garantir que o JS leia como -3
-            const statusTime = new Date(room.horastatus);
             
+            const statusTime = new Date(room.horastatus);
             const diffMs = nowInBr - statusTime;
             const diffMin = Math.floor(diffMs / (1000 * 60));
-            
-            // Se a diferença for negativa, pode haver erro de fuso no servidor
-            // Vamos forçar a interpretação do horastatus como UTC-3
-            let finalDiffMin = diffMin;
-            if (diffMin < -120 || diffMin > 1440) { 
-                 // Tenta outro ajuste se o fuso do JS estiver bagunçado
-                 console.log(`[TIME_ADJUST] Ajustando fuso detectado para o quarto ${numero_quarto}`);
-            }
 
-            const hours = Math.floor(Math.abs(finalDiffMin) / 60);
-            const mins = Math.abs(finalDiffMin) % 60;
+            const hours = Math.floor(Math.abs(diffMin) / 60);
+            const mins = Math.abs(diffMin) % 60;
 
-            const formatTime = (date) => {
-                const d = new Date(date);
-                return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
-            };
+            const formatTime = (date) => new Date(date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 
             return {
                 quarto: numero_quarto,
@@ -152,9 +192,96 @@ const functionHandlers = {
     }
 };
 
-/**
- * Transcrever áudio usando Groq Whisper
- */
+// ===== IA PRINCIPAL =====
+async function getMotelAIResponse(userText, history = []) {
+
+    if (!history || history.length === 0 || userText.toLowerCase().trim() === 'menu') {
+        return menuInicial();
+    }
+
+    const direta = respostaDireta(userText);
+    if (direta) return direta;
+
+    const opcao = interpretarMenu(userText);
+
+    if (opcao === "periodo") return PRECO_PERIODO;
+    if (opcao === "pernoite") return PRECO_PERNOITE;
+
+    if (opcao === "reserva") {
+        return "Perfeito! Me diga qual suíte deseja ✨";
+    }
+
+    const preco = detectarPreco(userText);
+
+    if (preco.geral && !preco.periodo && !preco.pernoite) {
+        return "Você prefere 2h30 ou pernoite (12h)? ✨";
+    }
+
+    if (preco.periodo) return PRECO_PERIODO;
+    if (preco.pernoite) return PRECO_PERNOITE;
+
+    const dynamicContext = await getDynamicContext(userText);
+
+    const historyLimit = history.slice(-3);
+
+    const messages = [
+        {
+            role: 'system',
+            content: MOTEL_PROMPT + dynamicContext
+        },
+        ...historyLimit.map(m => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.content
+        })),
+        { role: 'user', content: userText }
+    ];
+
+    try {
+        const response = await axios.post(`${GROQ_URL}/chat/completions`, {
+            model: 'llama-3.1-8b-instant',
+            messages,
+            tools,
+            temperature: 0.7
+        }, {
+            headers: { Authorization: `Bearer ${GROQ_KEY}` }
+        });
+
+        const msg = response.data.choices[0].message;
+
+        if (msg.tool_calls) {
+            messages.push(msg);
+
+            for (const call of msg.tool_calls) {
+                const fn = call.function.name;
+                const args = JSON.parse(call.function.arguments);
+                const result = await functionHandlers[fn](args);
+
+                messages.push({
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    name: fn,
+                    content: JSON.stringify(result)
+                });
+            }
+
+            const second = await axios.post(`${GROQ_URL}/chat/completions`, {
+                model: 'llama-3.1-8b-instant',
+                messages
+            }, {
+                headers: { Authorization: `Bearer ${GROQ_KEY}` }
+            });
+
+            return second.data.choices[0].message.content;
+        }
+
+        return msg.content;
+
+    } catch (err) {
+        return getGeminiResponse(userText, history);
+    }
+}
+
+// ===== TRANSCRIÇÃO DE ÁUDIO =====
 async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
     try {
         const formData = new FormData();
@@ -166,7 +293,7 @@ async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
                 ...formData.getHeaders(),
                 'Authorization': `Bearer ${GROQ_KEY}`
             },
-            timeout: 30000 // 30 segundos
+            timeout: 30000 
         });
 
         return response.data.text;
@@ -176,170 +303,23 @@ async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
     }
 }
 
-/**
- * Resposta de fallback usando Gemini com suporte a ferramentas
- */
+// ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
-    try {
-        console.log('Utilizando Gemini (com ferramentas)...');
-        
-        // Configuração das ferramentas para Gemini
-        const geminiTools = [
-            {
-                functionDeclarations: [
-                    {
-                        name: 'verificar_disponibilidade_real',
-                        description: 'Consulta o banco de dados do motel para ver a disponibilidade e preços dos quartos em tempo real por categoria.',
-                        parameters: {
-                            type: 'OBJECT',
-                            properties: {
-                                tipo: { type: 'STRING', description: 'Filtro por tipo de quarto' }
-                            }
-                        }
-                    },
-                    {
-                        name: 'verificar_tempo_permanencia',
-                        description: 'Calcula há quanto tempo um quarto específico está no status atual.',
-                        parameters: {
-                            type: 'OBJECT',
-                            properties: {
-                                numero_quarto: { type: 'NUMBER', description: 'Número do quarto' }
-                            },
-                            required: ['numero_quarto']
-                        }
-                    }
-                ]
-            }
-        ];
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const dynamicContext = await getDynamicContext(userText);
 
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            tools: geminiTools
-        });
+    const chat = model.startChat({
+        history: [
+            { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
+            ...history.slice(-3).map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }]
+            }))
+        ]
+    });
 
-        const chat = model.startChat({
-            history: [
-                { role: 'user', parts: [{ text: MOTEL_PROMPT }] },
-                { role: 'model', parts: [{ text: 'Entendido. Serei a Recepcionista Virtual do Motel Intensy com acesso ao sistema.' }] },
-                ...history.map(msg => ({
-                    role: (msg.role === 'assistant' || msg.role === 'model') ? 'model' : 'user',
-                    parts: [{ text: msg.content }]
-                }))
-            ]
-        });
-
-        const result = await chat.sendMessage(userText);
-        const response = result.response;
-        
-        // Verificar se quer chamar função
-        const call = response.candidates[0].content.parts.find(p => p.functionCall);
-        if (call) {
-            const { name, args } = call.functionCall;
-            console.log(`Gemini chamando função: ${name}`, args);
-            const data = await functionHandlers[name](args);
-            
-            const toolResult = await chat.sendMessage([{
-                functionResponse: {
-                    name,
-                    response: data
-                }
-            }]);
-            return toolResult.response.text();
-        }
-
-        return response.text();
-    } catch (error) {
-        console.error('Erro no fallback Gemini:', error.message);
-        throw error;
-    }
+    const result = await chat.sendMessage(userText);
+    return result.response.text();
 }
 
-/**
- * Obter resposta do Llama 3 no Groq com suporte a ferramentas
- */
-async function getMotelAIResponse(userText, history = []) {
-    // Injeção do fuso horário e data atual para a IA ter contexto real
-    const nowInBr = new Date(new Date().getTime() - (3 * 3600000) + (new Date().getTimezoneOffset() * 60000));
-    const timeContext = `\n\n[CONTEXTO ATUAL]: Hoje é dia ${nowInBr.toLocaleDateString('pt-BR')}. Agora são exatamente ${nowInBr.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} (Horário de Brasília, UTC-3). Use isso para cálculos de tempo.`;
-
-    let messages = [
-        { role: 'system', content: MOTEL_PROMPT + timeContext },
-        ...history.map(msg => ({
-            role: (msg.role === 'assistant' || msg.role === 'model') ? 'assistant' : 'user',
-            content: msg.content
-        })),
-        { role: 'user', content: userText }
-    ];
-
-    const maxRetries = 2;
-    let attempt = 0;
-
-    while (attempt <= maxRetries) {
-        try {
-            const response = await axios.post(`${GROQ_URL}/chat/completions`, {
-                model: 'llama-3.1-8b-instant', // Llama-3.1 8b já suporta tool calling perfeitamente
-                messages,
-                tools,
-                tool_choice: 'auto',
-                temperature: 0.7
-            }, {
-                headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
-                timeout: 30000
-            });
-
-            const responseMessage = response.data.choices[0].message;
-
-            // Se houver chamadas de ferramenta
-            if (responseMessage.tool_calls) {
-                messages.push(responseMessage);
-                
-                for (const toolCall of responseMessage.tool_calls) {
-                    const functionName = toolCall.function.name;
-                    const functionArgs = JSON.parse(toolCall.function.arguments);
-                    console.log(`Groq chamando função: ${functionName}`, functionArgs);
-                    
-                    const functionResponse = await functionHandlers[functionName](functionArgs);
-                    
-                    messages.push({
-                        tool_call_id: toolCall.id,
-                        role: 'tool',
-                        name: functionName,
-                        content: JSON.stringify(functionResponse)
-                    });
-                }
-
-                // Segunda chamada para obter a resposta final baseada no retorno da ferramenta
-                const secondResponse = await axios.post(`${GROQ_URL}/chat/completions`, {
-                    model: 'llama-3.1-8b-instant',
-                    messages,
-                    temperature: 0.7
-                }, {
-                    headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
-                    timeout: 30000
-                });
-
-                return secondResponse.data.choices[0].message.content;
-            }
-
-            return responseMessage.content;
-
-        } catch (error) {
-            console.error(`Erro na Groq API (tentativa ${attempt + 1}):`, error.response ? JSON.stringify(error.response.data) : error.message);
-            
-            if (attempt < maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                attempt++;
-                continue;
-            }
-            
-            try {
-                return await getGeminiResponse(userText, history);
-            } catch (geminiError) {
-                console.error('Ambos Groq e Gemini falharam.');
-                throw error;
-            }
-        }
-    }
-}
-
-module.exports = { getMotelAIResponse, transcribeAudio };
+module.exports = { getMotelAIResponse, transcribeAudio, getDynamicContext, PRICE_CONTEXT };
