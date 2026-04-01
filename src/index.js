@@ -22,6 +22,30 @@ setInterval(() => {
     console.log(`[MONITOR] RAM: RSS ${Math.round(used.rss / 1024 / 1024 * 100) / 100}MB, Heap ${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100}MB`);
 }, 60 * 60 * 1000);
 
+// Limpeza de Cache e Memória (a cada 2 horas)
+setInterval(async () => {
+    console.log('[CLEANUP] Iniciando rotina de limpeza de memória e cache (2h)...');
+    try {
+        // Tenta limpar sessão/cache da página do Chromium vinculada ao Whatsapp se acessível
+        if (wppClient && wppClient.page) {
+            await wppClient.page.evaluate(() => {
+                if (window.gc) { window.gc(); }
+            }).catch(() => {});
+            console.log('[CLEANUP] Cache/GC da página do painel verificado.');
+        }
+
+        // Se o node estiver rodando com --expose-gc, força o garbage collector do backend
+        if (global && global.gc) {
+            global.gc();
+            console.log('[CLEANUP] Node.js Garbage Collection forçado com sucesso.');
+        } else {
+            console.log('[CLEANUP] Dica: Para forçar a limpeza de memória do Node, você pode adicionar a flag --expose-gc no package.json em "start". (ex: node --expose-gc src/index.js)');
+        }
+    } catch (err) {
+        console.error('[CLEANUP] Erro na rotina de limpeza:', err.message);
+    }
+}, 2 * 60 * 60 * 1000); // 2 horas
+
 // Limpeza diária de arquivos temporários (para evitar encher o disco da VPS)
 setInterval(() => {
     const tempPath = path.join(__dirname, '..', 'temp');

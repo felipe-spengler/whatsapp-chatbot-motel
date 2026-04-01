@@ -242,6 +242,7 @@ async function getMotelAIResponse(userText, history = []) {
             model: 'llama-3.1-8b-instant',
             messages,
             tools,
+            tool_choice: 'auto',
             temperature: 0.7
         }, {
             headers: { Authorization: `Bearer ${GROQ_KEY}` }
@@ -249,13 +250,38 @@ async function getMotelAIResponse(userText, history = []) {
 
         const msg = response.data.choices[0].message;
 
-        if (msg.tool_calls) {
-            messages.push(msg);
+        // Correção de Parser para Modelo Llama no Groq
+        if (!msg.tool_calls && msg.content && msg.content.includes('<function=')) {
+            const regex = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
+            let match;
+            msg.tool_calls = [];
+            let newContent = msg.content;
+            
+            while ((match = regex.exec(msg.content)) !== null) {
+                msg.tool_calls.push({
+                    id: 'call_' + Math.random().toString(36).substr(2, 9),
+                    type: 'function',
+                    function: { name: match[1], arguments: match[2] }
+                });
+                newContent = newContent.replace(match[0], '');
+            }
+            msg.content = newContent.trim() || null;
+        }
+
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+            // Garante que a mensagem salva no histórico tenha um content válido (mesmo vazio) para a próxima requisição não falhar
+            const assistantMsg = { ...msg };
+            if (!assistantMsg.content) assistantMsg.content = "";
+            messages.push(assistantMsg);
 
             for (const call of msg.tool_calls) {
                 const fn = call.function.name;
-                const args = JSON.parse(call.function.arguments);
-                const result = await functionHandlers[fn](args);
+                const argsStr = call.function.arguments;
+                // Tratamento caso os argumentos não sejam um JSON perfeito
+                let args = {};
+                try { args = JSON.parse(argsStr); } catch(e) { console.error('Erro parser args:', argsStr); }
+                
+                const result = await functionHandlers[fn] ? await functionHandlers[fn](args) : { erro: "Ferramenta não encontrada" };
 
                 messages.push({
                     role: 'tool',
@@ -267,18 +293,23 @@ async function getMotelAIResponse(userText, history = []) {
 
             const second = await axios.post(`${GROQ_URL}/chat/completions`, {
                 model: 'llama-3.1-8b-instant',
-                messages
+                messages,
+                tools
             }, {
                 headers: { Authorization: `Bearer ${GROQ_KEY}` }
             });
 
-            return second.data.choices[0].message.content;
+            // Retorna limpando qualquer resíduo de function que possa ter vazado na segunda resposta
+            let finalContent = second.data.choices[0].message.content || "";
+            return finalContent.replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '').trim();
         }
 
-        return msg.content;
+        let mainContent = msg.content || "";
+        return mainContent.replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '').trim();
 
     } catch (err) {
-        return getGeminiResponse(userText, history);
+        console.error('[GROQ API ERROR]:', err.response ? err.response.data : err.message);
+        return await getGeminiResponse(userText, history);
     }
 }
 
@@ -306,21 +337,26 @@ async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
 
 // ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const dynamicContext = await getDynamicContext(userText);
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const dynamicContext = await getDynamicContext(userText);
 
-    const chat = model.startChat({
-        history: [
-            { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
-            ...history.slice(-3).map(m => ({
-                role: m.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: m.content }]
-            }))
-        ]
-    });
+        const chat = model.startChat({
+            history: [
+                { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
+                ...history.slice(-3).map(m => ({
+                    role: m.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: m.content }]
+                }))
+            ]
+        });
 
-    const result = await chat.sendMessage(userText);
-    return result.response.text();
+        const result = await chat.sendMessage(userText);
+        return result.response.text();
+    } catch (error) {
+        console.error("Gemini Fallback Error:", error.message);
+        return "Desculpe, estou passando por uma instabilidade técnica no sistema. Um atendente já vai te ajudar! 🌸";
+    }
 }
 
 module.exports = { getMotelAIResponse, transcribeAudio, getDynamicContext };
