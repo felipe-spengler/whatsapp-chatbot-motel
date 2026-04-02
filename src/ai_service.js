@@ -178,13 +178,33 @@ const functionHandlers = {
 
             const formatTime = (date) => new Date(date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 
+            const limiteHoras = room.status === 'ocupado-pernoite' ? 12 : 2.5;
+            const tempoTotalRestanteMins = (limiteHoras * 60) - diffMin;
+            const excedeuLimite = tempoTotalRestanteMins < 0;
+            
+            let taxaHoraExtra = 'R$ 20,00';
+            if (room.tipoquarto.toLowerCase().includes('suite') || room.tipoquarto.toLowerCase().includes('suíte') || room.tipoquarto.toLowerCase().includes('master')) {
+                taxaHoraExtra = 'R$ 30,00';
+            }
+
+            let msgExtra = "";
+            if (excedeuLimite) {
+                const tempoExcedido = Math.abs(tempoTotalRestanteMins);
+                const he = Math.floor(tempoExcedido / 60);
+                const me = Math.floor(tempoExcedido % 60);
+                msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Informe que o tempo normal (${limiteHoras}h) JÁ PASSOU e eles já excederam o limite em ${he}h e ${me}min. Diga também que a taxa da hora (ou fração) adicional para esse tipo de quarto é ${taxaHoraExtra}. Pergunte educadamente se desejam fechar a conta ou se pretendem continuar no quarto. Transforme isso num texto amigável, não seja robótico.`;
+            } else {
+                const hr = Math.floor(tempoTotalRestanteMins / 60);
+                const mr = Math.floor(tempoTotalRestanteMins % 60);
+                msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Diga que já se passou ${hours}h e ${mins}min desde a entrada, e que FALTAM exatamente ${hr}h e ${mr}min para vencer o período contratado (${limiteHoras}h). Aproveite para avisar gentilmente que caso fiquem além desse horário, será cobrada hora extra de ${taxaHoraExtra}/hora. Transforme isso num texto amigável e natural.`;
+            }
+
             return {
                 quarto: numero_quarto,
                 tipo: room.tipoquarto,
-                status_atual: room.status,
                 tempo_decorrido: `${hours}h ${mins}min`,
                 horario_entrada: formatTime(room.horastatus),
-                horario_atual_sistema: formatTime(nowInBr)
+                instrucao_para_a_IA_como_responder: msgExtra
             };
         } catch (error) {
             console.error('Erro na ferramenta de tempo:', error);
