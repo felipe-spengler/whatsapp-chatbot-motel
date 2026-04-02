@@ -139,7 +139,7 @@ const tools = [
             parameters: {
                 type: 'object',
                 properties: {
-                    numero_quarto: { type: 'number' }
+                    numero_quarto: { type: 'string', description: 'Número exato do quarto que o cliente informou estar (ex: "3", "8", "12"). Nunca invente ou presuma o número.' }
                 },
                 required: ['numero_quarto']
             }
@@ -216,7 +216,7 @@ const functionHandlers = {
 // ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         const dynamicContext = await getDynamicContext(userText);
 
         const chat = model.startChat({

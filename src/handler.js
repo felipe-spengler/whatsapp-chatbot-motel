@@ -43,6 +43,8 @@ async function handleMessage(client, message) {
             lastBotSentTime: 0,
             lastActivity: Date.now(),
             isProcessing: false,
+            messageBuffer: [],
+            bufferTimeout: null,
             lastSender: 'none'
         };
     }
@@ -64,122 +66,132 @@ async function handleMessage(client, message) {
     session.lastActivity = Date.now();
     let text = message.body ? message.body.trim() : '';
 
-    try {
-        session.isProcessing = true; // Bloqueia novos processamentos para este cliente
-
-        // --- CAMADA DE SPEECH-TO-TEXT (AUDIO) ---
-        if (message.type === 'audio' || message.type === 'ptt') {
-            try {
-                console.log(`Recebido áudio de ${from}. Transcrevendo...`);
-                let buffer = await client.decryptFile(message);
-                const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
-                buffer = null; // Libera buffer da memória
-                if (transcribedText) {
-                    console.log(`Transcrição concluída: "${transcribedText}"`);
-                    text = transcribedText;
-                }
-            } catch (error) {
-                console.error('Erro ao processar áudio:', error);
+    // --- CAMADA DE SPEECH-TO-TEXT (AUDIO) ---
+    if (message.type === 'audio' || message.type === 'ptt') {
+        try {
+            console.log(`Recebido áudio de ${from}. Transcrevendo...`);
+            let buffer = await client.decryptFile(message);
+            const transcribedText = await transcribeAudio(buffer, `${message.id}.ogg`);
+            buffer = null;
+            if (transcribedText) {
+                console.log(`Transcrição concluída: "${transcribedText}"`);
+                text = transcribedText;
             }
+        } catch (error) {
+            console.error('Erro ao processar áudio:', error);
         }
+    }
 
-        if (!text) {
-            session.isProcessing = false;
-            return;
-        }
+    if (!text) return;
 
-        // --- ANTI-LOOP E REPETIÇÃO ---
-        if (text === session.lastUserText) {
-            session.repeatCount++;
-        } else {
-            session.repeatCount = 0;
-            session.lastUserText = text;
-        }
+    // Bufferiza a mensagem
+    if (!session.messageBuffer) session.messageBuffer = [];
+    session.messageBuffer.push(text);
 
-        if (session.repeatCount >= 2 || session.messageCount >= 15) {
-            console.log(`Loop detectado para ${from}. Parando.`);
-            session.isProcessing = false;
-            return;
-        }
+    // Cancela o processamento anterior se o cliente enviar outra mensagem rapidamente
+    if (session.bufferTimeout) {
+        clearTimeout(session.bufferTimeout);
+    }
 
-        session.messageCount++;
+    // Inicia um timer de 4 segundos para aguardar mais mensagens
+    session.bufferTimeout = setTimeout(async () => {
+        session.isProcessing = true; // Bloqueia novos processamentos
+        const combinedText = session.messageBuffer.join('\\n');
+        session.messageBuffer = []; // Limpa o buffer
 
-        // --- RESPOSTAS RÁPIDAS (GREETINGS) ---
-        const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
-        const isOnlyGreeting = greetings.includes(text.toLowerCase()) || (text.length <= 4 && greetings.some(g => text.toLowerCase().includes(g)));
+        try {
+            // --- ANTI-LOOP E REPETIÇÃO ---
+            if (combinedText === session.lastUserText) {
+                session.repeatCount++;
+            } else {
+                session.repeatCount = 0;
+                session.lastUserText = combinedText;
+            }
 
-        if (isOnlyGreeting && session.messageCount === 1) {
-            const hour = new Date().getHours() - 3; // Brasil
-            let greet = (hour >= 5 && hour < 12) ? "Bom dia!" : (hour >= 12 && hour < 18) ? "Boa tarde!" : "Boa noite!";
-            const staticResponse = `${greet} ✨ Bem-vindo ao *Motel Intensy*. Como posso ajudar você hoje? 💖`;
+            if (session.repeatCount >= 2 || session.messageCount >= 15) {
+                console.log(`Loop detectado para ${from}. Parando.`);
+                session.isProcessing = false;
+                return;
+            }
+
+            session.messageCount++;
+
+            // --- RESPOSTAS RÁPIDAS (GREETINGS) ---
+            const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
+            // Permite saudações no messageBuffer se só enviou isso ou frase pequena repetitiva
+            const isOnlyGreeting = greetings.includes(combinedText.toLowerCase().trim()) || (combinedText.length <= 8 && greetings.some(g => combinedText.toLowerCase().includes(g)));
+
+            if (isOnlyGreeting && session.messageCount === 1) {
+                const hour = new Date().getHours() - 3; // Brasil
+                let greet = (hour >= 5 && hour < 12) ? "Bom dia!" : (hour >= 12 && hour < 18) ? "Boa tarde!" : "Boa noite!";
+                const staticResponse = `${greet} ✨ Bem-vindo ao *Motel Intensy*. Como posso ajudar você hoje? 💖`;
+
+                await client.startTyping(from);
+                await new Promise(r => setTimeout(r, 1500));
+                await client.sendText(from, staticResponse);
+
+                session.lastBotSentTime = Date.now();
+                session.lastSender = 'bot';
+                session.history.push({ role: 'user', content: combinedText }, { role: 'assistant', content: staticResponse });
+                session.isProcessing = false;
+                return;
+            }
+
+            // --- PROCESSAMENTO IA ---
+            const aiResponse = await getMotelAIResponse(combinedText, session.history);
+
+            // Atualiza Histórico
+            session.history.push({ role: 'user', content: combinedText }, { role: 'assistant', content: aiResponse });
+            if (session.history.length > 20) session.history.shift();
+
+            // Verificação de Transferência
+            const textLower = combinedText.toLowerCase();
+            const transferKeywords = [
+                'atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente',
+                'falar com alguem', 'ajuda'
+            ];
+            const actionKeywords = [
+                'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão',
+                'quero sair', 'liberar saída', 'liberar saida', 'checkout agora',
+                'pedir saída', 'pedir saida'
+            ];
+
+            const userAskedForHuman = transferKeywords.some(kw => textLower.includes(kw));
+            const userRequestedAction = actionKeywords.some(kw => textLower.includes(kw));
+
+            if (userAskedForHuman || userRequestedAction || aiResponse.includes("Vou te transferir") || aiResponse.includes("atendente foi notificado")) {
+                try {
+                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
+                    console.log(`[NOTIFICAÇÃO] Aviso de transferência enviado para o Admin.`);
+                } catch (notifErr) {
+                    console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin. Verifique o número no .env:', notifErr.message);
+                }
+            }
+
+            // Simulação Humana e Envio
+            const readingDelay = 2000 + (Math.random() * 2000); // 2 a 4 segundos
+            await new Promise(r => setTimeout(r, readingDelay));
 
             await client.startTyping(from);
-            await new Promise(r => setTimeout(r, 1500));
-            await client.sendText(from, staticResponse);
+
+            const typingDelay = Math.min(Math.max(aiResponse.length * 15, 2000), 5000);
+            const randomFuzzy = Math.random() * 1500;
+
+            await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
+
+            await client.sendText(from, aiResponse);
 
             session.lastBotSentTime = Date.now();
             session.lastSender = 'bot';
-            session.history.push({ role: 'user', content: text }, { role: 'assistant', content: staticResponse });
+            await client.stopTyping(from);
+
+        } catch (error) {
+            console.error('Erro no Handler Timer:', error);
+            await client.sendText(from, "Desculpe, tive um probleminha técnico. Um atendente já vai te ajudar! 🌸");
+        } finally {
             session.isProcessing = false;
-            return;
         }
-
-        // --- PROCESSAMENTO IA ---
-        const aiResponse = await getMotelAIResponse(text, session.history);
-
-        // Atualiza Histórico
-        session.history.push({ role: 'user', content: text }, { role: 'assistant', content: aiResponse });
-        if (session.history.length > 20) session.history.shift();
-
-        // Verificação de Transferência (Notificação para o Humano)
-        const textLower = text.toLowerCase();
-        const transferKeywords = [
-            'atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente',
-            'falar com alguem', 'ajuda'
-        ];
-        const actionKeywords = [
-            'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão',
-            'quero sair', 'liberar saída', 'liberar saida', 'checkout agora',
-            'pedir saída', 'pedir saida'
-        ];
-
-        const userAskedForHuman = transferKeywords.some(kw => textLower.includes(kw));
-        const userRequestedAction = actionKeywords.some(kw => textLower.includes(kw));
-
-        if (userAskedForHuman || userRequestedAction || aiResponse.includes("Vou te transferir") || aiResponse.includes("atendente foi notificado")) {
-            try {
-                await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
-                console.log(`[NOTIFICAÇÃO] Aviso de transferência enviado para o Admin.`);
-            } catch (notifErr) {
-                console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin. Verifique o número no .env:', notifErr.message);
-            }
-        }
-
-        // Simulação Humana e Envio (Fuzzy Delay)
-        // 1. Atraso de "Leitura" (Pausa antes de começar a digitar)
-        const readingDelay = 2000 + (Math.random() * 2000); // 2 a 4 segundos
-        await new Promise(r => setTimeout(r, readingDelay));
-
-        await client.startTyping(from);
-
-        // 2. Atraso de "Escrita" (Cálculo baseado no tamanho da resposta da IA)
-        const typingDelay = Math.min(Math.max(aiResponse.length * 15, 2000), 5000);
-        const randomFuzzy = Math.random() * 1500;
-
-        await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
-
-        await client.sendText(from, aiResponse);
-
-        session.lastBotSentTime = Date.now();
-        session.lastSender = 'bot';
-        await client.stopTyping(from);
-
-    } catch (error) {
-        console.error('Erro no Handler:', error);
-        await client.sendText(from, "Desculpe, tive um probleminha técnico. Um atendente já vai te ajudar! 🌸");
-    } finally {
-        session.isProcessing = false; // Libera para a próxima mensagem
-    }
+    }, 4500);
 }
 
 async function handleAnyMessage(client, message) {
