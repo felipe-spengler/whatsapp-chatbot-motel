@@ -9,7 +9,7 @@ setInterval(() => {
     const twelveHours = 12 * 60 * 60 * 1000;
     const now = Date.now();
     for (const from in sessions) {
-        if (now - (sessions[from].lastBotSentTime || sessions[from].lastHumanInteraction || now) > twelveHours) {
+        if (!sessions[from].isProcessing && now - (sessions[from].lastBotSentTime || sessions[from].lastActivity || sessions[from].lastHumanInteraction || now) > twelveHours) {
             console.log(`Limpando sessão inativa: ${from}`);
             delete sessions[from];
         }
@@ -41,6 +41,7 @@ async function handleMessage(client, message) {
             repeatCount: 0,
             lastHumanInteraction: 0,
             lastBotSentTime: 0,
+            lastActivity: Date.now(),
             isProcessing: false,
             lastSender: 'none'
         };
@@ -60,6 +61,7 @@ async function handleMessage(client, message) {
 
     // 5. Marcação de entrada
     session.lastSender = 'customer';
+    session.lastActivity = Date.now();
     let text = message.body ? message.body.trim() : '';
 
     try {

@@ -216,7 +216,7 @@ const functionHandlers = {
 // ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const dynamicContext = await getDynamicContext(userText);
 
         const chat = model.startChat({
@@ -327,7 +327,8 @@ async function getMotelAIResponseInternal(userText, history = []) {
             tool_choice: 'auto',
             temperature: 0.7
         }, {
-            headers: { Authorization: `Bearer ${GROQ_KEY}` }
+            headers: { Authorization: `Bearer ${GROQ_KEY}` },
+            timeout: 15000
         });
 
         const msg = response.data.choices[0].message;
@@ -376,7 +377,8 @@ async function getMotelAIResponseInternal(userText, history = []) {
                 messages,
                 tools
             }, {
-                headers: { Authorization: `Bearer ${GROQ_KEY}` }
+                headers: { Authorization: `Bearer ${GROQ_KEY}` },
+                timeout: 15000
             });
 
             return second.data.choices[0].message.content || "";
