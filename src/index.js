@@ -171,8 +171,7 @@ async function initWhatsApp() {
                 '--no-default-browser-check',
                 '--safebrowsing-disable-auto-update',
                 '--password-store=basic',
-                '--use-mock-keychain',
-                '--js-flags="--max-old-space-size=512"'
+                '--use-mock-keychain'
             ]
         });
 
@@ -199,7 +198,7 @@ async function initWhatsApp() {
                     // Ignora
                 }
             }
-        }, 30000); // Ping a cada 30 segundos
+        }, 60000); // Ping silencioso a cada 1 minuto
 
         client.onMessage(async (message) => {
             await handleMessage(client, message);
