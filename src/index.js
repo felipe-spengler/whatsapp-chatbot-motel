@@ -141,8 +141,10 @@ async function initWhatsApp() {
             },
             headless: 'new',
             useChrome: false, // Forçar Chromium interno do Puppeteer para maior compatibilidade no Docker
-            autoClose: 600000,
+            autoClose: 0,
             browserArgs: [
+                '--disable-renderer-backgrounding',
+                 '--disable-features=IntensiveWakeUpThrottling',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
@@ -178,6 +180,26 @@ async function initWhatsApp() {
         console.log('Motel Bot is active!');
         lastStatus = 'connected';
         io.emit('status', 'connected');
+
+        client.onStateChange((state) => {
+            console.log(`[WPP] Estado alterado para: ${state}`);
+            if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNLAUNCHED' || state === 'TIMEOUT') {
+                console.log(`[CRITICAL] Falha na conexão (Estado: ${state}). Reiniciando WPPConnect...`);
+                // Envia logout para limpar auth stale, então reinicia Node
+                process.exit(1);
+            }
+        });
+
+        // Loop de Keep-Alive (Heartbeat) - Evita que o websocket do WhatsApp Web hiberne
+        setInterval(async () => {
+            if (wppClient && lastStatus === 'connected') {
+                try {
+                    await wppClient.isConnected();
+                } catch (e) {
+                    // Ignora
+                }
+            }
+        }, 30000); // Ping a cada 30 segundos
 
         client.onMessage(async (message) => {
             await handleMessage(client, message);

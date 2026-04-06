@@ -229,7 +229,10 @@ async function getGeminiResponse(userText, history = []) {
             ]
         });
 
-        const result = await chat.sendMessage(userText);
+        const result = await Promise.race([
+            chat.sendMessage(userText),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini API Timeout')), 15000))
+        ]);
         let text = result.response.text() || "";
         
         // Se o Gemini tentar usar o pseudo-formato de função, extraímos e limpamos
@@ -254,8 +257,10 @@ async function getGeminiResponse(userText, history = []) {
                     toolResponses += `\n[Resultado da função ${call.name}]: ${JSON.stringify(result)}\n`;
                 }
                 
-                // Manda o resultado da ferramenta silenciosamente no mesmo chat e retorna a nova resposta
-                const secondResult = await chat.sendMessage(`Você executou funções internamente. Aqui estão os resultados. Use-os para responder ao cliente de forma natural, sem exibir tags: ${toolResponses}`);
+                const secondResult = await Promise.race([
+                    chat.sendMessage(`Você executou funções internamente. Aqui estão os resultados. Use-os para responder ao cliente de forma natural, sem exibir tags: ${toolResponses}`),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini API Timeout 2')), 15000))
+                ]);
                 text = secondResult.response.text() || "";
             }
         }
