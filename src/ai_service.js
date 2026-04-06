@@ -330,7 +330,7 @@ async function getMotelAIResponseInternal(userText, history = []) {
             messages,
             tools,
             tool_choice: 'auto',
-            temperature: 0.7
+            temperature: 0.2
         }, {
             headers: { Authorization: `Bearer ${GROQ_KEY}` },
             timeout: 15000
@@ -380,7 +380,8 @@ async function getMotelAIResponseInternal(userText, history = []) {
             const second = await axios.post(`${GROQ_URL}/chat/completions`, {
                 model: 'llama-3.1-8b-instant',
                 messages,
-                tools
+                tools,
+                temperature: 0.2
             }, {
                 headers: { Authorization: `Bearer ${GROQ_KEY}` },
                 timeout: 15000
