@@ -108,8 +108,15 @@ async function handleMessage(client, message) {
                 session.lastUserText = combinedText;
             }
 
-            if (session.repeatCount >= 2 || session.messageCount >= 15) {
+            if (session.repeatCount >= 3) {
                 console.log(`Loop detectado para ${from}. Parando.`);
+                session.isProcessing = false;
+                return;
+            }
+
+            // Evita erro de mensagens contendo apenas base64 (geralmente fotos/midias lidas puramente como texto)
+            if (combinedText.length > 1000 && !combinedText.includes(' ')) {
+                console.log(`[DEBUG] Ignorada: Mensagem longa sem espaços (provável mídia base64).`);
                 session.isProcessing = false;
                 return;
             }

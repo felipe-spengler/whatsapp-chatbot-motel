@@ -15,6 +15,7 @@ const io = new Server(server);
 let lastQR = null;
 let lastStatus = 'loading';
 let wppClient = null;
+const NOTIFICATION_NUMBER = process.env.NOTIFICATION_NUMBER ? process.env.NOTIFICATION_NUMBER.replace(/\D/g, '') : null;
 
 // Monitoramento de Memória (Log a cada 1 hora no console)
 setInterval(() => {
@@ -40,14 +41,20 @@ setInterval(() => {
 }, 24 * 60 * 60 * 1000);
 
 // Tratamento Global de Erros para Evitar Travamentos Silenciosos
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', async (err) => {
     console.error('[CRITICAL] Uncaught Exception:', err);
-    process.exit(1); // Força reinício pelo Docker
+    if (wppClient && NOTIFICATION_NUMBER) {
+        try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚨 *FALHA CRÍTICA:* Erro fatal na aplicação:\n${err.message}\nO bot será reiniciado.`); } catch(e) {}
+    }
+    setTimeout(() => process.exit(1), 1500); // Força reinício pelo Docker
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', async (reason, promise) => {
     console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
-    process.exit(1); // Força reinício pelo Docker
+    if (wppClient && NOTIFICATION_NUMBER) {
+        try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚨 *FALHA CRÍTICA:* Rejeição de processo não tratada.\nO bot será reiniciado.`); } catch(e) {}
+    }
+    setTimeout(() => process.exit(1), 1500); // Força reinício pelo Docker
 });
 
 const PORT = process.env.PORT || 3001;
@@ -180,6 +187,14 @@ async function initWhatsApp() {
         lastStatus = 'connected';
         io.emit('status', 'connected');
 
+        if (NOTIFICATION_NUMBER) {
+            try {
+                await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚀 *SISTEMA ONLINE:* O Motel Bot (Docker) foi inicializado com sucesso e está operante!`);
+            } catch (err) {
+                console.error('[WPP] Falha ao enviar notificação de inicialização', err.message);
+            }
+        }
+
         client.onStateChange((state) => {
             console.log(`[WPP] Estado alterado para: ${state}`);
             if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNLAUNCHED' || state === 'TIMEOUT') {
@@ -193,12 +208,23 @@ async function initWhatsApp() {
         setInterval(async () => {
             if (wppClient && lastStatus === 'connected') {
                 try {
-                    await wppClient.isConnected();
+                    const isConn = await wppClient.isConnected();
+                    if (!isConn) {
+                        console.log('[CRITICAL] WPPConnect relatou isConnected=false silenciosamente! Reiniciando...');
+                        if (NOTIFICATION_NUMBER) {
+                            try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `⚠️ *ALERTA WPPCONNECT:* A conexão ficou congelada silenciosamente. Vou reiniciar o bot forçadamente para reestabelecer.`); } catch(e){}
+                        }
+                        setTimeout(() => process.exit(1), 1000);
+                    }
                 } catch (e) {
-                    // Ignora
+                    console.error('[CRITICAL] Erro no Ping do WPPConnect (A página pode ter crashado):', e.message);
+                    if (NOTIFICATION_NUMBER) {
+                        try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `⚠️ *ALERTA WPPCONNECT:* A página do WhatsApp desabou (${e.message}). Reiniciando o node/docker...`); } catch(e){}
+                    }
+                    setTimeout(() => process.exit(1), 1000); // Força docker/pm2 a reiniciar
                 }
             }
-        }, 60000); // Ping silencioso a cada 1 minuto
+        }, 60000); // Ping a cada 1 minuto
 
         client.onMessage(async (message) => {
             await handleMessage(client, message);

@@ -216,7 +216,7 @@ const functionHandlers = {
 // ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const dynamicContext = await getDynamicContext(userText);
 
         const chat = model.startChat({
