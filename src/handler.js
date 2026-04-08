@@ -6,7 +6,7 @@ const startTime = Math.floor(Date.now() / 1000);
 
 // Limpeza de sessões inativas a cada 15 minutos
 setInterval(() => {
-    const twelveHours = 12 * 60 * 60 * 1000;
+    const twelveHours = 4 * 60 * 60 * 1000;
     const now = Date.now();
     for (const from in sessions) {
         if (!sessions[from].isProcessing && now - (sessions[from].lastBotSentTime || sessions[from].lastActivity || sessions[from].lastHumanInteraction || now) > twelveHours) {
@@ -45,7 +45,8 @@ async function handleMessage(client, message) {
             isProcessing: false,
             messageBuffer: [],
             bufferTimeout: null,
-            lastSender: 'none'
+            lastSender: 'none',
+            humanNotifiedAt: 0 // controle para não spammar notificação
         };
     }
 
@@ -55,6 +56,24 @@ async function handleMessage(client, message) {
     const fiveMinutes = 5 * 60 * 1000;
     if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
         console.log(`[DEBUG] AI Silenciada por intervenção humana em ${from}.`);
+
+        // Notifica o admin apenas 1x por janela de intervenção (evita spam)
+        if (NOTIFICATION_NUMBER && (Date.now() - (session.humanNotifiedAt || 0)) > fiveMinutes) {
+            session.humanNotifiedAt = Date.now();
+            const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
+            const rawNumber = from.replace('@c.us', '');
+            const displayNumber = `+${rawNumber}`;
+            const nameStr = notifyName ? `*${notifyName}* (${displayNumber})` : displayNumber;
+            try {
+                await client.sendText(
+                    `${NOTIFICATION_NUMBER}@c.us`,
+                    `🔕 *BOT SILENCIADO:* O cliente ${nameStr} enviou uma mensagem mas o bot está pausado por intervenção humana. Responda manualmente ou aguarde 5 min para o bot retomar.`
+                );
+            } catch (e) {
+                console.error('[NOTIFICAÇÃO] Erro ao avisar sobre bot silenciado:', e.message);
+            }
+        }
+
         return;
     }
 
@@ -95,8 +114,15 @@ async function handleMessage(client, message) {
 
     // Inicia um timer de 4 segundos para aguardar mais mensagens
     session.bufferTimeout = setTimeout(async () => {
+        // Re-verifica intervenção humana: pode ter ocorrido durante os 4.5s de espera
+        if (Date.now() - session.lastHumanInteraction < 5 * 60 * 1000) {
+            console.log(`[DEBUG] Buffer cancelado: intervenção humana ocorreu durante a espera em ${from}.`);
+            session.messageBuffer = [];
+            return;
+        }
+
         session.isProcessing = true; // Bloqueia novos processamentos
-        const combinedText = session.messageBuffer.join('\\n');
+        const combinedText = session.messageBuffer.join('\n');
         session.messageBuffer = []; // Limpa o buffer
 
         try {
@@ -149,7 +175,7 @@ async function handleMessage(client, message) {
 
             // Atualiza Histórico
             session.history.push({ role: 'user', content: combinedText }, { role: 'assistant', content: aiResponse });
-            if (session.history.length > 20) session.history.shift();
+            while (session.history.length > 20) session.history.shift();
 
             // Verificação de Transferência
             const textLower = combinedText.toLowerCase();
@@ -168,7 +194,10 @@ async function handleMessage(client, message) {
 
             if (userAskedForHuman || userRequestedAction || aiResponse.includes("Vou te transferir") || aiResponse.includes("atendente foi notificado")) {
                 try {
-                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${from.split('@')[0]} solicitou ajuda.`);
+                    const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
+                    const realNumber = (message.sender && message.sender.formattedName) ? message.sender.formattedName : from.split('@')[0];
+                    const nameStr = notifyName ? `*${notifyName}* ` : '';
+                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda.`);
                     console.log(`[NOTIFICAÇÃO] Aviso de transferência enviado para o Admin.`);
                 } catch (notifErr) {
                     console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin. Verifique o número no .env:', notifErr.message);

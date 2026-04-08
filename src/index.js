@@ -188,11 +188,15 @@ async function initWhatsApp() {
         io.emit('status', 'connected');
 
         if (NOTIFICATION_NUMBER) {
-            try {
-                await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚀 *SISTEMA ONLINE:* O Motel Bot (Docker) foi inicializado com sucesso e está operante!`);
-            } catch (err) {
-                console.error('[WPP] Falha ao enviar notificação de inicialização', err.message);
-            }
+            console.log('[WPP] Agendando envio de notificação de inicialização para o Admin em 8s...');
+            setTimeout(async () => {
+                try {
+                    await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚀 *SISTEMA ONLINE:* O Motel Bot (Docker) foi inicializado com sucesso e está operante!`);
+                    console.log('[WPP] Notificação de inicialização enviada com sucesso.');
+                } catch (err) {
+                    console.error('[WPP] Falha ao enviar notificação de inicialização', err.message);
+                }
+            }, 8000);
         }
 
         client.onStateChange((state) => {

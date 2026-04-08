@@ -222,7 +222,7 @@ async function getGeminiResponse(userText, history = []) {
         const chat = model.startChat({
             history: [
                 { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
-                ...history.slice(-3).map(m => ({
+                ...history.slice(-10).map(m => ({
                     role: m.role === 'assistant' ? 'model' : 'user',
                     parts: [{ text: m.content }]
                 }))
@@ -290,27 +290,29 @@ async function getMotelAIResponseInternal(userText, history = []) {
     const direta = respostaDireta(userText);
     if (direta) return direta;
 
-    const opcao = interpretarMenu(userText);
+    if (history.length <= 2) {
+        const opcao = interpretarMenu(userText);
 
-    if (opcao === "periodo") return PRECO_PERIODO;
-    if (opcao === "pernoite") return PRECO_PERNOITE;
+        if (opcao === "periodo") return PRECO_PERIODO;
+        if (opcao === "pernoite") return PRECO_PERNOITE;
 
-    if (opcao === "reserva") {
-        return "Perfeito! Me diga qual suíte deseja ✨";
+        if (opcao === "reserva") {
+            return "Perfeito! Me diga qual suíte deseja ✨";
+        }
+
+        const preco = detectarPreco(userText);
+
+        if (preco.geral && !preco.periodo && !preco.pernoite) {
+            return "Você prefere 2h30 ou pernoite (12h)? ✨";
+        }
+
+        if (preco.periodo) return PRECO_PERIODO;
+        if (preco.pernoite) return PRECO_PERNOITE;
     }
-
-    const preco = detectarPreco(userText);
-
-    if (preco.geral && !preco.periodo && !preco.pernoite) {
-        return "Você prefere 2h30 ou pernoite (12h)? ✨";
-    }
-
-    if (preco.periodo) return PRECO_PERIODO;
-    if (preco.pernoite) return PRECO_PERNOITE;
 
     const dynamicContext = await getDynamicContext(userText);
 
-    const historyLimit = history.slice(-3);
+    const historyLimit = history.slice(-10);
 
     const messages = [
         {
