@@ -7,9 +7,12 @@ const pool = mysql.createPool({
     password: process.env.REMOTE_DB_PASS,
     database: process.env.REMOTE_DB_NAME,
     waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+    connectionLimit: 5,       // reduzido para não sobrecarregar a VPS
+    queueLimit: 10,           // máx de queries na fila antes de rejeitar
+    connectTimeout: 10000,    // 10s para conectar
+    // acquireTimeout é tratado pelo withTimeout no ai_service.js
 });
+
 
 /**
  * Check room availability and pricing

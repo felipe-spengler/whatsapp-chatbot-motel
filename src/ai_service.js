@@ -4,6 +4,7 @@ const path = require('path');
 const FormData = require('form-data');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const db = require('./db_service');
+const { withCircuitBreaker, withTimeout } = require('./protection');
 
 // ===== PROMPTS =====
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
@@ -107,27 +108,27 @@ async function getDynamicContext(userText) {
         return context + availabilityCache.data;
     }
 
-    try {
-        const rooms = await db.getFullRoomsStatus();
-        const freeRooms = rooms.filter(r => r.status === 'livre');
-        const availableTypes = [...new Set(freeRooms.map(r => r.tipoquarto))];
-        
-        let avContext = '';
-        if (availableTypes.length > 0) {
-            avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos livres: ${availableTypes.join(', ')}.`;
-        } else {
-            avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
-        }
+    // ─── CAMADA 2: CIRCUIT BREAKER para o banco de dados ────────────────
+    return await withCircuitBreaker(
+        'mysql',
+        async () => {
+            const rooms = await withTimeout(db.getFullRoomsStatus(), 8000, 'MySQL getFullRoomsStatus');
+            const freeRooms = rooms.filter(r => r.status === 'livre');
+            const availableTypes = [...new Set(freeRooms.map(r => r.tipoquarto))];
+            
+            let avContext = '';
+            if (availableTypes.length > 0) {
+                avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos livres: ${availableTypes.join(', ')}.`;
+            } else {
+                avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
+            }
 
-        availabilityCache = {
-            data: avContext,
-            lastUpdate: now
-        };
-        
-        return context + avContext;
-    } catch (dbError) {
-        return context + (availabilityCache.data || ''); 
-    }
+            availabilityCache = { data: avContext, lastUpdate: now };
+            return context + avContext;
+        },
+        // fallback: usa o cache anterior ou sem disponibilidade
+        async () => context + (availabilityCache.data || '')
+    );
 }
 
 // ===== TOOLS =====
@@ -326,79 +327,93 @@ async function getMotelAIResponseInternal(userText, history = []) {
         { role: 'user', content: userText }
     ];
 
-    try {
-        const response = await axios.post(`${GROQ_URL}/chat/completions`, {
-            model: 'llama-3.1-8b-instant',
-            messages,
-            tools,
-            tool_choice: 'auto',
-            temperature: 0.2
-        }, {
-            headers: { Authorization: `Bearer ${GROQ_KEY}` },
-            timeout: 15000
-        });
+    // ─── CAMADA 2: CIRCUIT BREAKER para o Groq ─────────────────────────────
+    return await withCircuitBreaker(
+        'groq',
+        async () => {
+            const response = await withTimeout(
+                axios.post(`${GROQ_URL}/chat/completions`, {
+                    model: 'llama-3.1-8b-instant',
+                    messages,
+                    tools,
+                    tool_choice: 'auto',
+                    temperature: 0.2
+                }, {
+                    headers: { Authorization: `Bearer ${GROQ_KEY}` },
+                    timeout: 15000
+                }),
+                18000,
+                'Groq chat/completions'
+            );
 
-        const msg = response.data.choices[0].message;
+            const msg = response.data.choices[0].message;
 
-        // Correção de Parser para Modelo Llama no Groq
-        if (!msg.tool_calls && msg.content && msg.content.includes('<function=')) {
-            const regex = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
-            let match;
-            msg.tool_calls = [];
-            let newContent = msg.content;
-            
-            while ((match = regex.exec(msg.content)) !== null) {
-                msg.tool_calls.push({
-                    id: 'call_' + Math.random().toString(36).substr(2, 9),
-                    type: 'function',
-                    function: { name: match[1], arguments: match[2] }
-                });
-                newContent = newContent.replace(match[0], '');
-            }
-            msg.content = newContent.trim() || null;
-        }
+            // Correção de Parser para Modelo Llama no Groq
+            if (!msg.tool_calls && msg.content && msg.content.includes('<function=')) {
+                const regex = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
+                let match;
+                msg.tool_calls = [];
+                let newContent = msg.content;
 
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
-            const assistantMsg = { ...msg };
-            if (!assistantMsg.content) assistantMsg.content = "";
-            messages.push(assistantMsg);
-
-            for (const call of msg.tool_calls) {
-                const fn = call.function.name;
-                const argsStr = call.function.arguments;
-                let args = {};
-                try { args = JSON.parse(argsStr); } catch(e) { }
-                
-                const result = await functionHandlers[fn] ? await functionHandlers[fn](args) : { erro: "Ferramenta não encontrada" };
-
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    name: fn,
-                    content: JSON.stringify(result)
-                });
+                while ((match = regex.exec(msg.content)) !== null) {
+                    msg.tool_calls.push({
+                        id: 'call_' + Math.random().toString(36).substr(2, 9),
+                        type: 'function',
+                        function: { name: match[1], arguments: match[2] }
+                    });
+                    newContent = newContent.replace(match[0], '');
+                }
+                msg.content = newContent.trim() || null;
             }
 
-            const second = await axios.post(`${GROQ_URL}/chat/completions`, {
-                model: 'llama-3.1-8b-instant',
-                messages,
-                tools,
-                temperature: 0.2
-            }, {
-                headers: { Authorization: `Bearer ${GROQ_KEY}` },
-                timeout: 15000
-            });
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+                const assistantMsg = { ...msg };
+                if (!assistantMsg.content) assistantMsg.content = "";
+                messages.push(assistantMsg);
 
-            return second.data.choices[0].message.content || "";
+                for (const call of msg.tool_calls) {
+                    const fn = call.function.name;
+                    const argsStr = call.function.arguments;
+                    let args = {};
+                    try { args = JSON.parse(argsStr); } catch(e) { }
+
+                    const result = await functionHandlers[fn] ? await functionHandlers[fn](args) : { erro: "Ferramenta não encontrada" };
+
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: call.id,
+                        name: fn,
+                        content: JSON.stringify(result)
+                    });
+                }
+
+                const second = await withTimeout(
+                    axios.post(`${GROQ_URL}/chat/completions`, {
+                        model: 'llama-3.1-8b-instant',
+                        messages,
+                        tools,
+                        temperature: 0.2
+                    }, {
+                        headers: { Authorization: `Bearer ${GROQ_KEY}` },
+                        timeout: 15000
+                    }),
+                    18000,
+                    'Groq tool-call second pass'
+                );
+
+                return second.data.choices[0].message.content || "";
+            }
+
+            return msg.content || "";
+        },
+        // fallback: Gemini quando Groq estiver com o circuito aberto
+        async () => {
+            console.warn('[CB] Groq indisponível. Usando Gemini como fallback.');
+            return await getGeminiResponse(userText, history);
         }
-
-        return msg.content || "";
-
-    } catch (err) {
-        console.error('[GROQ API ERROR]:', err.response ? err.response.data : err.message);
-        return await getGeminiResponse(userText, history);
-    }
+    );
 }
+
 
 // ===== TRANSCRIÇÃO DE ÁUDIO =====
 async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {

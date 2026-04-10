@@ -7,7 +7,8 @@ const { Server } = require('socket.io');
 const wppconnect = require('@wppconnect-team/wppconnect');
 const fs = require('fs');
 const path = require('path');
-const { handleMessage, handleAnyMessage } = require('./handler');
+const { handleMessage, handleAnyMessage, sessions: handlerSessions } = require('./handler');
+const { startMemoryWatchdog, getProtectionMetrics } = require('./protection');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,14 +18,18 @@ let lastStatus = 'loading';
 let wppClient = null;
 const NOTIFICATION_NUMBER = process.env.NOTIFICATION_NUMBER ? process.env.NOTIFICATION_NUMBER.replace(/\D/g, '') : null;
 
-// Monitoramento de Memória (Log a cada 1 hora no console)
-setInterval(() => {
-    const used = process.memoryUsage();
-    console.log(`[MONITOR] RAM: RSS ${Math.round(used.rss / 1024 / 1024 * 100) / 100}MB, Heap ${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100}MB`);
-}, 60 * 60 * 1000);
-
-// Limpeza de Cache e Memória (Removida por causar freeze no Chromium/Node 2h)
-// O Node.js possui um Garbage Collector eficiente nativamente.
+// ─── CAMADA 1: WATCHDOG DE MEMÓRIA ─────────────────────────────────────────
+// Inicia logo aqui, antes de qualquer IO, para garantir que o guard esteja ativo.
+startMemoryWatchdog(handlerSessions, (heapMB) => {
+    // Apenas loga — quem reinicia é o Docker/PM2 via process.exit nos handlers de erro.
+    // Se quiser reiniciar automaticamente ao ultrapassar heap, descomente a linha abaixo:
+    // if (heapMB > 480) setTimeout(() => process.exit(1), 500);
+    if (wppClient && NOTIFICATION_NUMBER) {
+        wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`,
+            `⚠️ *ALERTA MEMÓRIA:* Heap em ${heapMB} MB. Monitore a VPS.`
+        ).catch(() => {});
+    }
+});
 
 // Limpeza diária de arquivos temporários (para evitar encher o disco da VPS)
 setInterval(() => {
@@ -91,6 +96,15 @@ app.post('/login', (req, res) => {
     }
 });
 
+// ─── ENDPOINT DE MÉTRICAS VPS ────────────────────────────────────────────────
+app.get('/metrics', isAuthenticated, (req, res) => {
+    const metrics = getProtectionMetrics();
+    metrics.sessions       = Object.keys(handlerSessions).length;
+    metrics.activeSessions = Object.values(handlerSessions).filter(s => s.isProcessing).length;
+    metrics.uptime         = Math.round(process.uptime()) + 's';
+    res.json(metrics);
+});
+
 async function initWhatsApp() {
     try {
         const sessionName = process.env.SESSION_NAME || 'motel-intensy';
@@ -138,6 +152,12 @@ async function initWhatsApp() {
                 lastStatus = 'qr';
                 io.emit('qr', base64Qrimg);
             },
+            protocolTimeout: 130000, // Aumentado ligeiramente para mais segurança
+            puppeteerOptions: {
+                protocolTimeout: 130000,
+            },
+            disableWelcome: true, // Reduz processamento/logs no boot
+            updatesLog: false,
             statusFind: (statusSession) => {
                 lastStatus = statusSession;
                 if (statusSession === 'isLogged' || statusSession === 'connected') {

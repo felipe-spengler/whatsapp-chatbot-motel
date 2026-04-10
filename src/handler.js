@@ -1,20 +1,13 @@
 const { getMotelAIResponse, transcribeAudio } = require('./ai_service');
+const { isRateLimited, enqueueJob } = require('./protection');
 
 const sessions = {};
 const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER).replace(/\D/g, '');
 const startTime = Math.floor(Date.now() / 1000);
 
-// Limpeza de sessões inativas a cada 15 minutos
-setInterval(() => {
-    const twelveHours = 4 * 60 * 60 * 1000;
-    const now = Date.now();
-    for (const from in sessions) {
-        if (!sessions[from].isProcessing && now - (sessions[from].lastBotSentTime || sessions[from].lastActivity || sessions[from].lastHumanInteraction || now) > twelveHours) {
-            console.log(`Limpando sessão inativa: ${from}`);
-            delete sessions[from];
-        }
-    }
-}, 15 * 60 * 1000);
+// Limpeza de sessões inativas — delegada ao watchdog de memória da Camada 1.
+// O watchdog em protection.js roda a cada 5 min e respeita a flag isProcessing.
+
 
 async function handleMessage(client, message) {
     console.log(`[DEBUG] Mensagem recebida de ${message.from}: "${message.body}" (fromMe: ${message.fromMe})`);
@@ -31,6 +24,9 @@ async function handleMessage(client, message) {
     }
 
     const from = message.from;
+
+    // ─── CAMADA 3: RATE LIMITER ────────────────────────────────────
+    if (isRateLimited(from)) return;
 
     // 2. Inicialização da Sessão
     if (!sessions[from]) {
@@ -120,6 +116,10 @@ async function handleMessage(client, message) {
             session.messageBuffer = [];
             return;
         }
+
+        // ─── CAMADA 3: FILA DE CPU ─────────────────────────────────────
+        // Encapsula o processamento pesado na fila de concorrência controlada.
+        await enqueueJob(async () => {
 
         session.isProcessing = true; // Bloqueia novos processamentos
         const combinedText = session.messageBuffer.join('\n');
@@ -227,6 +227,8 @@ async function handleMessage(client, message) {
         } finally {
             session.isProcessing = false;
         }
+
+        }); // fecha enqueueJob
     }, 4500);
 }
 
@@ -260,4 +262,4 @@ async function handleAnyMessage(client, message) {
     }
 }
 
-module.exports = { handleMessage, handleAnyMessage };
+module.exports = { handleMessage, handleAnyMessage, sessions };
