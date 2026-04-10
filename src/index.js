@@ -146,7 +146,11 @@ async function initWhatsApp() {
                 try {
                     execSync(`rm -f ${path.join(sessionPath, 'Singleton*')}`);
                     execSync(`rm -f ${path.join(sessionPath, 'Default', 'Singleton*')}`);
-                    console.log(`[CLEANUP] Comando de limpeza executado.`);
+                    // Limpeza agressiva de caches que causam lentidão no boot
+                    execSync(`rm -rf ${path.join(sessionPath, 'Cache')}`);
+                    execSync(`rm -rf ${path.join(sessionPath, 'Code Cache')}`);
+                    execSync(`rm -rf ${path.join(sessionPath, 'GPUCache')}`);
+                    console.log(`[CLEANUP] Pastas de cache e travas removidas para garantir boot limpo.`);
                 } catch (cmdErr) {
                     // Fallback manual se o rm falhar
                     const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
@@ -174,9 +178,9 @@ async function initWhatsApp() {
                 lastStatus = 'qr';
                 io.emit('qr', base64Qrimg);
             },
-            protocolTimeout: 300000, // Aumentado para 5 minutos (VPS com IO lento)
+            protocolTimeout: 0, // Desativa o timeout de protocolo para dar tempo livre ao disco lento
             puppeteerOptions: {
-                protocolTimeout: 300000,
+                protocolTimeout: 0,
                 args: [
                     '--disable-renderer-backgrounding',
                     '--disable-features=IntensiveWakeUpThrottling',
