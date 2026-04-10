@@ -208,7 +208,9 @@ async function initWhatsApp() {
                     '--password-store=basic',
                     '--use-mock-keychain',
                     '--disable-software-rasterizer',
-                    '--disable-ipc-flooding-protection'
+                    '--disable-ipc-flooding-protection',
+                    '--blink-settings=imagesEnabled=false',
+                    '--js-flags="--max-old-space-size=256"'
                 ]
             },
             disableWelcome: true,
@@ -230,9 +232,7 @@ async function initWhatsApp() {
                 '--disable-gpu',
                 '--disable-software-rasterizer',
                 '--disable-ipc-flooding-protection',
-                '--hide-scrollbars',
-                '--mute-audio',
-                '--disable-extensions'
+                '--blink-settings=imagesEnabled=false'
             ]
         });
 

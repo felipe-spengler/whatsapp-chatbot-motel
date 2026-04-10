@@ -4,8 +4,8 @@
   "description": "WhatsApp Automation for Motel Intensy",
   "main": "src/index.js",
   "scripts": {
-    "start": "node --expose-gc --max-old-space-size=768 src/index.js",
-    "dev": "nodemon --exec 'node --expose-gc --max-old-space-size=768' src/index.js",
+    "start": "node --expose-gc --max-old-space-size=512 src/index.js",
+    "dev": "nodemon --exec 'node --expose-gc --max-old-space-size=512' src/index.js",
     "test:flow": "node scripts/test_flow.js"
   },
   "dependencies": {
