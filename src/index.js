@@ -45,21 +45,43 @@ setInterval(() => {
     }
 }, 24 * 60 * 60 * 1000);
 
+const CRASH_LOG_PATH = path.join(__dirname, '..', 'temp', 'last_crash.json');
+
+function saveCrashReport(error, source = 'Unknown') {
+    try {
+        const report = {
+            time: new Date().toLocaleString('pt-BR'),
+            source,
+            message: error.message || String(error),
+            stack: error.stack ? error.stack.split('\n').slice(0, 5).join('\n') : 'No stack trace'
+        };
+        const tempDir = path.dirname(CRASH_LOG_PATH);
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+        fs.writeFileSync(CRASH_LOG_PATH, JSON.stringify(report, null, 2));
+        console.log(`[REPORTER] Erro salvo em ${CRASH_LOG_PATH}`);
+    } catch (e) {
+        console.error('[REPORTER] Erro ao salvar crash report:', e);
+    }
+}
+
 // Tratamento Global de Erros para Evitar Travamentos Silenciosos
 process.on('uncaughtException', async (err) => {
     console.error('[CRITICAL] Uncaught Exception:', err);
+    saveCrashReport(err, 'Uncaught Exception');
     if (wppClient && NOTIFICATION_NUMBER) {
         try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚨 *FALHA CRÍTICA:* Erro fatal na aplicação:\n${err.message}\nO bot será reiniciado.`); } catch(e) {}
     }
-    setTimeout(() => process.exit(1), 1500); // Força reinício pelo Docker
+    setTimeout(() => process.exit(1), 2000); // Força reinício pelo Docker
 });
 
 process.on('unhandledRejection', async (reason, promise) => {
     console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    saveCrashReport(err, 'Unhandled Rejection');
     if (wppClient && NOTIFICATION_NUMBER) {
         try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚨 *FALHA CRÍTICA:* Rejeição de processo não tratada.\nO bot será reiniciado.`); } catch(e) {}
     }
-    setTimeout(() => process.exit(1), 1500); // Força reinício pelo Docker
+    setTimeout(() => process.exit(1), 2000); // Força reinício pelo Docker
 });
 
 const PORT = process.env.PORT || 3001;
@@ -152,11 +174,44 @@ async function initWhatsApp() {
                 lastStatus = 'qr';
                 io.emit('qr', base64Qrimg);
             },
-            protocolTimeout: 130000, // Aumentado ligeiramente para mais segurança
+            protocolTimeout: 300000, // Aumentado para 5 minutos (VPS com IO lento)
             puppeteerOptions: {
-                protocolTimeout: 130000,
+                protocolTimeout: 300000,
+                args: [
+                    '--disable-renderer-backgrounding',
+                    '--disable-features=IntensiveWakeUpThrottling',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu',
+                    '--hide-scrollbars',
+                    '--mute-audio',
+                    '--disable-extensions',
+                    '--disable-component-update',
+                    '--disable-background-networking',
+                    '--disable-background-timer-fast-tracking',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-breakpad',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-default-apps',
+                    '--disable-hang-monitor',
+                    '--disable-popup-blocking',
+                    '--disable-prompt-on-repost',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--metrics-recording-only',
+                    '--no-default-browser-check',
+                    '--safebrowsing-disable-auto-update',
+                    '--password-store=basic',
+                    '--use-mock-keychain',
+                    '--disable-software-rasterizer',
+                    '--disable-ipc-flooding-protection'
+                ]
             },
-            disableWelcome: true, // Reduz processamento/logs no boot
+            disableWelcome: true,
             updatesLog: false,
             statusFind: (statusSession) => {
                 lastStatus = statusSession;
@@ -166,39 +221,18 @@ async function initWhatsApp() {
                 io.emit('status', statusSession);
                 console.log('Status Session:', statusSession);
             },
-            headless: 'new',
-            useChrome: false, // Forçar Chromium interno do Puppeteer para maior compatibilidade no Docker
-            autoClose: 0,
+            headless: true,
+            useChrome: false, 
             browserArgs: [
-                '--disable-renderer-backgrounding',
-                 '--disable-features=IntensiveWakeUpThrottling',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
                 '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-ipc-flooding-protection',
                 '--hide-scrollbars',
                 '--mute-audio',
-                '--disable-extensions',
-                '--disable-component-update',
-                '--disable-background-networking',
-                '--disable-background-timer-fast-tracking',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-breakpad',
-                '--disable-client-side-phishing-detection',
-                '--disable-default-apps',
-                '--disable-hang-monitor',
-                '--disable-popup-blocking',
-                '--disable-prompt-on-repost',
-                '--disable-sync',
-                '--disable-translate',
-                '--metrics-recording-only',
-                '--no-default-browser-check',
-                '--safebrowsing-disable-auto-update',
-                '--password-store=basic',
-                '--use-mock-keychain'
+                '--disable-extensions'
             ]
         });
 
@@ -211,7 +245,25 @@ async function initWhatsApp() {
             console.log('[WPP] Agendando envio de notificação de inicialização para o Admin em 8s...');
             setTimeout(async () => {
                 try {
-                    await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🚀 *SISTEMA ONLINE:* O Motel Bot (Docker) foi inicializado com sucesso e está operante!`);
+                    let startupMsg = `🚀 *SISTEMA ONLINE:* O Motel Bot (Docker) foi inicializado com sucesso e está operante!`;
+                    
+                    // Verifica se houve um crash anterior
+                    if (fs.existsSync(CRASH_LOG_PATH)) {
+                        try {
+                            const crashInfo = JSON.parse(fs.readFileSync(CRASH_LOG_PATH, 'utf8'));
+                            startupMsg += `\n\n⚠️ *RELATÓRIO DA QUEDA ANTERIOR:*`;
+                            startupMsg += `\n- *Data/Hora:* ${crashInfo.time}`;
+                            startupMsg += `\n- *Origem:* ${crashInfo.source}`;
+                            startupMsg += `\n- *Erro:* ${crashInfo.message}`;
+                            startupMsg += `\n\n_Log técnico:_ \n\`\`\`${crashInfo.stack}\`\`\``;
+                            
+                            fs.unlinkSync(CRASH_LOG_PATH); // Limpa após reportar
+                        } catch (e) {
+                            console.error('Erro ao ler crash report:', e);
+                        }
+                    }
+                    
+                    await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, startupMsg);
                     console.log('[WPP] Notificação de inicialização enviada com sucesso.');
                 } catch (err) {
                     console.error('[WPP] Falha ao enviar notificação de inicialização', err.message);
@@ -242,6 +294,7 @@ async function initWhatsApp() {
                     }
                 } catch (e) {
                     console.error('[CRITICAL] Erro no Ping do WPPConnect (A página pode ter crashado):', e.message);
+                    saveCrashReport(e, 'Heartbeat/Ping Failure');
                     if (NOTIFICATION_NUMBER) {
                         try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `⚠️ *ALERTA WPPCONNECT:* A página do WhatsApp desabou (${e.message}). Reiniciando o node/docker...`); } catch(e){}
                     }
@@ -260,6 +313,7 @@ async function initWhatsApp() {
 
     } catch (error) {
         console.error('WPP Error:', error);
+        saveCrashReport(error, 'Initialization Error');
         io.emit('status', 'error');
         
         // Se falhou por causa do browser, tenta limpar e reiniciar uma vez após 5s

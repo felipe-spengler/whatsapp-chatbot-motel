@@ -13,9 +13,9 @@
 //  ⚠️  Valores hardcoded conservadores para VPS com ~1–2 GB RAM + Docker + Chromium
 //  Não é necessário definir variáveis de ambiente; estes já são os valores de produção.
 
-const HEAP_LIMIT_MB   = parseInt(process.env.HEAP_LIMIT_MB   || '900');  // alerta em 900 MB (87% do heap de 1024 MB)
-const SESSION_TTL_MS  = parseInt(process.env.SESSION_TTL_MS  || String(3 * 60 * 60 * 1000)); // 3h — libera RAM mais cedo
-const MEMORY_CHECK_MS = parseInt(process.env.MEMORY_CHECK_MS || String(5 * 60 * 1000));       // 5 min
+const HEAP_LIMIT_MB   = parseInt(process.env.HEAP_LIMIT_MB   || '650');  // alerta em 650 MB (aprox 85% do heap de 768 MB)
+const SESSION_TTL_MS  = parseInt(process.env.SESSION_TTL_MS  || String(1.5 * 60 * 60 * 1000)); // 1.5h — libera RAM mais agressivo
+const MEMORY_CHECK_MS = parseInt(process.env.MEMORY_CHECK_MS || String(2 * 60 * 1000));       // 2 min (mais frequente)
 
 /**
  * Monitora uso de heap e dispara GC + alerta quando passar do limite.
