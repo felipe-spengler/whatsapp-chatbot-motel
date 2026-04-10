@@ -174,47 +174,21 @@ async function initWhatsApp() {
         const client = await wppconnect.create({
             session: sessionName,
             catchQR: (base64Qrimg) => {
+                console.log('[WPP] QR Code recebido, envie para o painel.');
                 lastQR = base64Qrimg;
                 lastStatus = 'qr';
                 io.emit('qr', base64Qrimg);
             },
-            protocolTimeout: 0, // Desativa o timeout de protocolo para dar tempo livre ao disco lento
+            protocolTimeout: 600000, 
             puppeteerOptions: {
-                protocolTimeout: 0,
+                protocolTimeout: 600000,
                 args: [
-                    '--disable-renderer-backgrounding',
-                    '--disable-features=IntensiveWakeUpThrottling',
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
                     '--disable-gpu',
-                    '--hide-scrollbars',
-                    '--mute-audio',
-                    '--disable-extensions',
-                    '--disable-component-update',
-                    '--disable-background-networking',
-                    '--disable-background-timer-fast-tracking',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-breakpad',
-                    '--disable-client-side-phishing-detection',
-                    '--disable-default-apps',
-                    '--disable-hang-monitor',
-                    '--disable-popup-blocking',
-                    '--disable-prompt-on-repost',
-                    '--disable-sync',
-                    '--disable-translate',
-                    '--metrics-recording-only',
-                    '--no-default-browser-check',
-                    '--safebrowsing-disable-auto-update',
-                    '--password-store=basic',
-                    '--use-mock-keychain',
                     '--disable-software-rasterizer',
-                    '--disable-ipc-flooding-protection',
-                    '--blink-settings=imagesEnabled=false',
-                    '--js-flags="--max-old-space-size=256"'
+                    '--blink-settings=imagesEnabled=false'
                 ]
             },
             disableWelcome: true,
@@ -227,16 +201,12 @@ async function initWhatsApp() {
                 io.emit('status', statusSession);
                 console.log('Status Session:', statusSession);
             },
-            headless: true,
+            headless: 'new',
             useChrome: false, 
             browserArgs: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-software-rasterizer',
-                '--disable-ipc-flooding-protection',
-                '--blink-settings=imagesEnabled=false'
+                '--disable-dev-shm-usage'
             ]
         });
 
