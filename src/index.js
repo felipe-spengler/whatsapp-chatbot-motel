@@ -132,63 +132,69 @@ async function initWhatsApp() {
         const sessionName = process.env.SESSION_NAME || 'motel-intensy';
         const sessionPath = path.join(__dirname, '..', 'tokens', sessionName);
         
-        console.log(`[INIT] Iniciando sessão: ${sessionName}`);
-        console.log(`[INIT] Caminho da sessão: ${sessionPath}`);
+        console.log(`[INIT] 🚀 Iniciando fluxo de conexão: ${sessionName}`);
+        console.log(`[INIT] 📂 Caminho da sessão: ${sessionPath}`);
 
         // Limpeza robusta de travas do Chromium (essencial para Docker/VPS)
         if (fs.existsSync(sessionPath)) {
+            console.log(`[INIT] 🧹 Limpando travas da sessão anterior...`);
             try {
-                const files = fs.readdirSync(sessionPath);
-                console.log(`[INIT] Arquivos na pasta da sessão: ${files.join(', ')}`);
-                
-                // Tentativa de remover usando comando do sistema para ser mais incisivo com links simbólicos
-                const { execSync } = require('child_process');
-                try {
-                    execSync(`rm -f ${path.join(sessionPath, 'Singleton*')}`);
-                    execSync(`rm -f ${path.join(sessionPath, 'Default', 'Singleton*')}`);
-                    // Limpeza agressiva de caches que causam lentidão no boot
-                    execSync(`rm -rf ${path.join(sessionPath, 'Cache')}`);
-                    execSync(`rm -rf ${path.join(sessionPath, 'Code Cache')}`);
-                    execSync(`rm -rf ${path.join(sessionPath, 'GPUCache')}`);
-                    console.log(`[CLEANUP] Pastas de cache e travas removidas para garantir boot limpo.`);
-                } catch (cmdErr) {
-                    // Fallback manual se o rm falhar
-                    const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-                    lockFiles.forEach(file => {
-                        [sessionPath, path.join(sessionPath, 'Default')].forEach(dir => {
-                            const filePath = path.join(dir, file);
-                            if (fs.existsSync(filePath)) {
-                                fs.unlinkSync(filePath);
-                                console.log(`[CLEANUP] Limpeza manual: ${filePath}`);
-                            }
-                        });
+                // Remove arquivos de trava de forma recursiva e segura
+                const removeLocks = (dir) => {
+                    if (!fs.existsSync(dir)) return;
+                    const files = fs.readdirSync(dir);
+                    files.forEach(file => {
+                        const fullPath = path.join(dir, file);
+                        if (file.startsWith('Singleton') || file.includes('lockfile') || file === 'LOCK') {
+                            try {
+                                fs.unlinkSync(fullPath);
+                                console.log(`[CLEANUP] Removido: ${file}`);
+                            } catch (e) {}
+                        }
                     });
-                }
+                };
+
+                removeLocks(sessionPath);
+                removeLocks(path.join(sessionPath, 'Default'));
+                
+                // Limpeza de pastas de cache se existirem (ajuda na performance no boot)
+                ['Cache', 'Code Cache', 'GPUCache'].forEach(folder => {
+                    const folderPath = path.join(sessionPath, folder);
+                    if (fs.existsSync(folderPath)) {
+                        try {
+                            fs.rmSync(folderPath, { recursive: true, force: true });
+                            console.log(`[CLEANUP] Pasta de cache removida: ${folder}`);
+                        } catch (e) {}
+                    }
+                });
             } catch (e) {
-                console.error(`[INIT] Erro ao ler pasta da sessão:`, e.message);
+                console.warn(`[INIT] Aviso na limpeza de sessão:`, e.message);
             }
-        } else {
-            console.log(`[INIT] Pasta da sessão não existe ainda (será criada): ${sessionPath}`);
         }
 
-        const client = await wppconnect.create({
+        console.log('[INIT] 🌐 Chamando wppconnect.create...');
+        
+        // Timeout de 2 minutos para a criação do cliente — se exceder, algo travou feio
+        const clientPromise = wppconnect.create({
             session: sessionName,
             catchQR: (base64Qrimg) => {
-                console.log('[WPP] QR Code recebido, envie para o painel.');
+                console.log('[WPP] 📲 QR Code gerado.');
                 lastQR = base64Qrimg;
                 lastStatus = 'qr';
                 io.emit('qr', base64Qrimg);
             },
-            protocolTimeout: 600000, 
+            protocolTimeout: 60000, 
             puppeteerOptions: {
-                protocolTimeout: 600000,
+                userDataDir: sessionPath,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
                     '--disable-software-rasterizer',
-                    '--blink-settings=imagesEnabled=false'
+                    '--blink-settings=imagesEnabled=false',
+                    '--no-first-run',
+                    '--no-zygote'
                 ]
             },
             disableWelcome: true,
@@ -199,102 +205,64 @@ async function initWhatsApp() {
                     lastQR = null;
                 }
                 io.emit('status', statusSession);
-                console.log('Status Session:', statusSession);
+                console.log('[WPP] Status:', statusSession);
             },
             headless: 'new',
-            useChrome: false, 
-            browserArgs: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage'
-            ]
+            useChrome: false
         });
 
+        // Wrapper de timeout
+        const client = await Promise.race([
+            clientPromise,
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('WPPConnect Timeout: demorou mais de 2 minutos')), 120000)
+            )
+        ]);
+
         wppClient = client;
-        console.log('Motel Bot is active!');
+        console.log('✅ Motel Bot está ATIVO!');
         lastStatus = 'connected';
         io.emit('status', 'connected');
 
         if (NOTIFICATION_NUMBER) {
-            console.log('[WPP] Agendando envio de notificação de inicialização para o Admin em 8s...');
             setTimeout(async () => {
                 try {
-                    let startupMsg = `🚀 *SISTEMA ONLINE:* O Motel Bot (Docker) foi inicializado com sucesso e está operante!`;
-                    
-                    // Verifica se houve um crash anterior
+                    let startupMsg = `🚀 *SISTEMA ONLINE:* O Motel Bot foi reinicializado com sucesso!`;
                     if (fs.existsSync(CRASH_LOG_PATH)) {
-                        try {
-                            const crashInfo = JSON.parse(fs.readFileSync(CRASH_LOG_PATH, 'utf8'));
-                            startupMsg += `\n\n⚠️ *RELATÓRIO DA QUEDA ANTERIOR:*`;
-                            startupMsg += `\n- *Data/Hora:* ${crashInfo.time}`;
-                            startupMsg += `\n- *Origem:* ${crashInfo.source}`;
-                            startupMsg += `\n- *Erro:* ${crashInfo.message}`;
-                            startupMsg += `\n\n_Log técnico:_ \n\`\`\`${crashInfo.stack}\`\`\``;
-                            
-                            fs.unlinkSync(CRASH_LOG_PATH); // Limpa após reportar
-                        } catch (e) {
-                            console.error('Erro ao ler crash report:', e);
-                        }
+                        const crashInfo = JSON.parse(fs.readFileSync(CRASH_LOG_PATH, 'utf8'));
+                        startupMsg += `\n\n⚠️ *RELATÓRIO:* ${crashInfo.message}`;
+                        fs.unlinkSync(CRASH_LOG_PATH);
                     }
-                    
-                    await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, startupMsg);
-                    console.log('[WPP] Notificação de inicialização enviada com sucesso.');
-                } catch (err) {
-                    console.error('[WPP] Falha ao enviar notificação de inicialização', err.message);
-                }
-            }, 8000);
+                    await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, startupMsg).catch(() => {});
+                } catch (err) {}
+            }, 5000);
         }
 
         client.onStateChange((state) => {
-            console.log(`[WPP] Estado alterado para: ${state}`);
-            if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNLAUNCHED' || state === 'TIMEOUT') {
-                console.log(`[CRITICAL] Falha na conexão (Estado: ${state}). Reiniciando WPPConnect...`);
-                // Envia logout para limpar auth stale, então reinicia Node
+            console.log(`[WPP] Estado: ${state}`);
+            if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNLAUNCHED') {
                 process.exit(1);
             }
         });
 
-        // Loop de Keep-Alive (Heartbeat) - Evita que o websocket do WhatsApp Web hiberne
         setInterval(async () => {
             if (wppClient && lastStatus === 'connected') {
                 try {
                     const isConn = await wppClient.isConnected();
-                    if (!isConn) {
-                        console.log('[CRITICAL] WPPConnect relatou isConnected=false silenciosamente! Reiniciando...');
-                        if (NOTIFICATION_NUMBER) {
-                            try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `⚠️ *ALERTA WPPCONNECT:* A conexão ficou congelada silenciosamente. Vou reiniciar o bot forçadamente para reestabelecer.`); } catch(e){}
-                        }
-                        setTimeout(() => process.exit(1), 1000);
-                    }
-                } catch (e) {
-                    console.error('[CRITICAL] Erro no Ping do WPPConnect (A página pode ter crashado):', e.message);
-                    saveCrashReport(e, 'Heartbeat/Ping Failure');
-                    if (NOTIFICATION_NUMBER) {
-                        try { await wppClient.sendText(`${NOTIFICATION_NUMBER}@c.us`, `⚠️ *ALERTA WPPCONNECT:* A página do WhatsApp desabou (${e.message}). Reiniciando o node/docker...`); } catch(e){}
-                    }
-                    setTimeout(() => process.exit(1), 1000); // Força docker/pm2 a reiniciar
-                }
+                    if (!isConn) process.exit(1);
+                } catch (e) { process.exit(1); }
             }
-        }, 60000); // Ping a cada 1 minuto
+        }, 60000);
 
-        client.onMessage(async (message) => {
-            await handleMessage(client, message);
-        });
-
-        client.onAnyMessage(async (message) => {
-            await handleAnyMessage(client, message);
-        });
+        client.onMessage(async (message) => await handleMessage(client, message));
+        client.onAnyMessage(async (message) => await handleAnyMessage(client, message));
 
     } catch (error) {
-        console.error('WPP Error:', error);
+        console.error('❌ ERRO NO BOOT:', error.message);
         saveCrashReport(error, 'Initialization Error');
         io.emit('status', 'error');
-        
-        // Se falhou por causa do browser, tenta limpar e reiniciar uma vez após 5s
-        if (error.message.includes('launch the browser')) {
-            console.log('Tentando auto-recuperação em 10 segundos...');
-            setTimeout(() => initWhatsApp(), 10000);
-        }
+        console.log('[RETRY] Reiniciando em 15s...');
+        setTimeout(() => process.exit(1), 15000);
     }
 }
 
