@@ -68,6 +68,10 @@ function respostaDireta(msg) {
         return "Após a 2ª pessoa, é cobrado R$ 30 por pessoa adicional 💖";
     }
 
+    if (t.includes("pagar só o tempo") || t.includes("pagar so o tempo") || t.includes("pagar proporcional") || t.includes("pagar 1 hora") || t.includes("pagar uma hora")) {
+        return "O valor cobrado é sempre o do período fechado (2h30 ou 12h), mesmo que você decida sair antes. Não trabalhamos com valores proporcionais ou cobrança por hora fracionada. ✨";
+    }
+
     return null;
 }
 
