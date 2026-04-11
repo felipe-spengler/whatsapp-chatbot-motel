@@ -59,9 +59,16 @@ TOM:
 - Narguilé permitido com responsabilidade
 - Sem barulho excessivo
 
-💳 PAGAMENTO
-- Reserva: só com pagamento antecipado
-- Sem reserva: paga na saída (EXCETO clientes a pé ou de Uber/Táxi, que devem pagar na entrada).
+💳 PAGAMENTO E CHECKOUT
+- Meios de pagamento: Dinheiro, Cartão (Débito/Crédito) e PIX.
+- Quando pagar:
+  → Reserva: Somente com pagamento antecipado.
+  → Clientes a pé ou Uber/Táxi: Pagamento na ENTRADA.
+  → Demais clientes: Pagamento na SAÍDA.
+- SEGURANÇA: NINGUÉM sai do motel sem que a conta esteja 100% paga.
+- É PROIBIDO "ir buscar dinheiro" ou "pagar depois". O pagamento é imediato.
+- Não é permitido que um hóspede saia para buscar dinheiro enquanto o outro fica no quarto.
+- Se o cliente disser que está sem dinheiro/cartão, sugira o PIX imediatamente. ✨
 - Mudança para pernoite:
   → Só paga o valor da pernoite (o período de 2h30 é ignorado/substituído).
   → O tempo total de permanência é de 12h contados a partir do HORÁRIO DE ENTRADA original.
