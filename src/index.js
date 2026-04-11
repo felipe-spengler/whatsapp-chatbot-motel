@@ -174,7 +174,7 @@ async function initWhatsApp() {
 
         console.log('[INIT] 🌐 Chamando wppconnect.create...');
         
-        // Timeout de 2 minutos para a criação do cliente — se exceder, algo travou feio
+        // Timeout de 4 minutos para a criação do cliente — essencial para VPS com volume lento
         const clientPromise = wppconnect.create({
             session: sessionName,
             catchQR: (base64Qrimg) => {
@@ -183,9 +183,10 @@ async function initWhatsApp() {
                 lastStatus = 'qr';
                 io.emit('qr', base64Qrimg);
             },
-            protocolTimeout: 60000, 
+            protocolTimeout: 120000, // 120s para o protocolo interno
             puppeteerOptions: {
                 userDataDir: sessionPath,
+                executablePath: '/usr/bin/google-chrome-stable', // Caminho padrão no Debian/Ubuntu do Docker
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -194,7 +195,9 @@ async function initWhatsApp() {
                     '--disable-software-rasterizer',
                     '--blink-settings=imagesEnabled=false',
                     '--no-first-run',
-                    '--no-zygote'
+                    '--no-zygote',
+                    '--disable-features=site-per-process',
+                    '--disable-extensions'
                 ]
             },
             disableWelcome: true,
@@ -208,14 +211,14 @@ async function initWhatsApp() {
                 console.log('[WPP] Status:', statusSession);
             },
             headless: 'new',
-            useChrome: false
+            useChrome: true // Força o uso do Chrome instalado ao invés do Chromium baixado
         });
 
-        // Wrapper de timeout
+        // Wrapper de timeout ampliado para 4 minutos
         const client = await Promise.race([
             clientPromise,
             new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('WPPConnect Timeout: demorou mais de 2 minutos')), 120000)
+                setTimeout(() => reject(new Error('WPPConnect Timeout: demorou mais de 4 minutos para iniciar. Verifique limites de CPU/RAM.')), 240000)
             )
         ]);
 
