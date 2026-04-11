@@ -4,6 +4,7 @@ const { isRateLimited, enqueueJob } = require('./protection');
 const sessions = {};
 const NOTIFICATION_NUMBER = (process.env.NOTIFICATION_NUMBER).replace(/\D/g, '');
 const startTime = Math.floor(Date.now() / 1000);
+const BOT_PREFIX = '*Assistente Virtual:*';
 
 // Limpeza de sessões inativas — delegada ao watchdog de memória da Camada 1.
 // O watchdog em protection.js roda a cada 5 min e respeita a flag isProcessing.
@@ -161,7 +162,9 @@ async function handleMessage(client, message) {
 
                 await client.startTyping(from);
                 await new Promise(r => setTimeout(r, 1500));
-                await client.sendText(from, staticResponse);
+                
+                const responseWithPrefix = `${BOT_PREFIX}\n\n${staticResponse}`;
+                await client.sendText(from, responseWithPrefix);
 
                 session.lastBotSentTime = Date.now();
                 session.lastSender = 'bot';
@@ -181,7 +184,7 @@ async function handleMessage(client, message) {
             const textLower = combinedText.toLowerCase();
             const transferKeywords = [
                 'atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente',
-                'falar com alguem', 'ajuda'
+                'falar com alguem', 'ajuda', 'estorno', 'cancelamento', 'cancelar', 'reembolso'
             ];
             const actionKeywords = [
                 'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão',
@@ -192,15 +195,18 @@ async function handleMessage(client, message) {
             const userAskedForHuman = transferKeywords.some(kw => textLower.includes(kw));
             const userRequestedAction = actionKeywords.some(kw => textLower.includes(kw));
 
-            if (userAskedForHuman || userRequestedAction || aiResponse.includes("Vou te transferir") || aiResponse.includes("atendente foi notificado")) {
+            if (userAskedForHuman || userRequestedAction || aiResponse.includes("transferir") || aiResponse.includes("acionado") || aiResponse.includes("notificado")) {
                 try {
+                    // SILENCIA O BOT IMEDIATAMENTE (Pausa de 5 min)
+                    session.lastHumanInteraction = Date.now();
+                    
                     const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
                     const realNumber = (message.sender && message.sender.formattedName) ? message.sender.formattedName : from.split('@')[0];
                     const nameStr = notifyName ? `*${notifyName}* ` : '';
-                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda.`);
-                    console.log(`[NOTIFICAÇÃO] Aviso de transferência enviado para o Admin.`);
+                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA ATIVA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda ou estorno. Bot pausado por 5 min.`);
+                    console.log(`[NOTIFICAÇÃO] Auto-pause e aviso de transferência enviado para o Admin.`);
                 } catch (notifErr) {
-                    console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin. Verifique o número no .env:', notifErr.message);
+                    console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin.', notifErr.message);
                 }
             }
 
@@ -215,7 +221,15 @@ async function handleMessage(client, message) {
 
             await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
 
-            await client.sendText(from, aiResponse);
+            // CHECAGEM DE ÚLTIMO SEGUNDO: se o humano interveio durante os segundos de simulação (reading/typing)
+            if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
+                console.log(`[REAL] Envio CANCELADO no último segundo por intervenção humana em ${from}.`);
+                await client.stopTyping(from);
+                return;
+            }
+
+            const responseWithPrefix = `${BOT_PREFIX}\n\n${aiResponse}`;
+            await client.sendText(from, responseWithPrefix);
 
             session.lastBotSentTime = Date.now();
             session.lastSender = 'bot';
@@ -223,7 +237,7 @@ async function handleMessage(client, message) {
 
         } catch (error) {
             console.error('Erro no Handler Timer:', error);
-            await client.sendText(from, "Desculpe, tive um probleminha técnico. Um atendente já vai te ajudar! 🌸");
+            await client.sendText(from, `${BOT_PREFIX}\n\nDesculpe, tive um probleminha técnico. Um atendente já vai te ajudar! 🌸`);
         } finally {
             session.isProcessing = false;
         }
@@ -235,7 +249,7 @@ async function handleMessage(client, message) {
 async function handleAnyMessage(client, message) {
     if (!message.fromMe) return;
 
-    // 1. Ignorar mensagens antigas (sync inicial) e protocolos
+    // 1. Ignorar mensagens antigas e protocolos
     const now = Math.floor(Date.now() / 1000);
     if (now - message.timestamp > 15) return;
     if (message.type === 'protocol' || message.from.includes('broadcast')) return;
@@ -243,22 +257,25 @@ async function handleAnyMessage(client, message) {
     const to = message.to;
     if (!sessions[to]) return;
 
-    // 2. Se o bot está no meio de um processamento, o 'fromMe' é dele mesmo
-    if (sessions[to].isProcessing) {
-        sessions[to].lastBotSentTime = Date.now();
-        return;
-    }
+    // 2. DETECÇÃO DE INTERVENÇÃO HUMANA INFALÍVEL
+    // Se a mensagem que EU enviei NÃO começa com o prefixo do bot, então fui EU (humano).
+    const isBotResponse = message.body && message.body.startsWith(BOT_PREFIX);
 
-    // 3. A Lógica de Ouro: Só é humano se VOCÊ mandou msg e o último foi o CLIENTE
-    // E se não foi uma mensagem enviada pelo bot nos últimos 3.5 segundos
-    const isBotRecently = (Date.now() - (sessions[to].lastBotSentTime || 0)) < 3500;
-
-    if (sessions[to].lastSender === 'customer' && !isBotRecently) {
-        if (message.body && message.body.length > 0) {
-            sessions[to].lastHumanInteraction = Date.now();
-            sessions[to].lastSender = 'human';
-            console.log(`[REAL] Intervenção detectada para ${to}. Bot pausado.`);
+    if (!isBotResponse) {
+        console.log(`[REAL] Intervenção detectada para ${to} (sem prefixo). Pausando bot.`);
+        sessions[to].lastHumanInteraction = Date.now();
+        sessions[to].lastSender = 'human';
+        
+        // CANCELA qualquer processamento em curso ou na fila de buffer
+        if (sessions[to].bufferTimeout) {
+            clearTimeout(sessions[to].bufferTimeout);
+            sessions[to].bufferTimeout = null;
+            sessions[to].messageBuffer = [];
+            console.log(`[REAL] Buffer cancelado para ${to}.`);
         }
+    } else {
+        // Se foi o bot, apenas atualizamos o tempo para o watchdog de 3.5s (segurança extra)
+        sessions[to].lastBotSentTime = Date.now();
     }
 }
 
