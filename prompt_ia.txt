@@ -57,9 +57,11 @@ TOM:
 
 💳 PAGAMENTO
 - Reserva: só com pagamento antecipado
-- Sem reserva: paga na saída
+- Sem reserva: paga na saída (EXCETO clientes a pé ou de Uber/Táxi, que devem pagar na entrada).
 - Mudança para pernoite:
-  → cobra apenas pernoite (não soma períodos)
+  → Só paga o valor da pernoite (o período de 2h30 é ignorado/substituído).
+  → O tempo total de permanência é de 12h contados a partir do HORÁRIO DE ENTRADA original.
+  → Use o dado `horario_vencimento_pernoite` da ferramenta para informar o horário exato de saída.
 
 📍 LOCAL
 Endereço: Rua Coroa do Norte, 220 — Toledo/PR

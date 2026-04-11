@@ -140,7 +140,7 @@ const tools = [
             parameters: {
                 type: 'object',
                 properties: {
-                    numero_quarto: { type: 'string', description: 'Número exato do quarto que o cliente informou estar (ex: "3", "8", "12"). Nunca invente ou presuma o número.' }
+                    numero_quarto: { type: 'string', description: 'Número exato do quarto que o cliente informou estar. Use esta função para saber o horário de entrada e calcular quanto tempo falta ou o horário de saída (12h após a entrada) caso ele queira mudar para pernoite.' }
                 },
                 required: ['numero_quarto']
             }
@@ -200,11 +200,14 @@ const functionHandlers = {
                 msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Diga que já se passou ${hours}h e ${mins}min desde a entrada, e que FALTAM exatamente ${hr}h e ${mr}min para vencer o período contratado (${limiteHoras}h). Aproveite para avisar gentilmente que caso fiquem além desse horário, será cobrada hora extra de ${taxaHoraExtra}/hora. Transforme isso num texto amigável e natural.`;
             }
 
+            const pernoiteVencimento = new Date(statusTime.getTime() + (12 * 3600000));
+
             return {
                 quarto: numero_quarto,
                 tipo: room.tipoquarto,
                 tempo_decorrido: `${hours}h ${mins}min`,
                 horario_entrada: formatTime(room.horastatus),
+                horario_vencimento_pernoite: formatTime(pernoiteVencimento),
                 instrucao_para_a_IA_como_responder: msgExtra
             };
         } catch (error) {
