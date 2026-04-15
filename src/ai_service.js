@@ -10,7 +10,7 @@ const { withCircuitBreaker, withTimeout } = require('./protection');
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
 const PRECO_PERIODO = fs.readFileSync(path.join(__dirname, '..', 'preco_periodo.txt'), 'utf8');
 const PRECO_PERNOITE = fs.readFileSync(path.join(__dirname, '..', 'preco_pernoite.txt'), 'utf8');
-const PRICE_CONTEXT = `\n\n[TABELA DE PREÇOS]:\nPeríodo (2h30):\n${PRECO_PERIODO}\n\nPernoite (12h):\n${PRECO_PERNOITE}\n`;
+const PRICE_CONTEXT = `\n\n[TABELA DE PREÇOS]:\nPeríodos (1h e 2h):\n${PRECO_PERIODO}\n\nPernoite (12h):\n${PRECO_PERNOITE}\n`;
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = 'https://api.groq.com/openai/v1';
@@ -25,8 +25,8 @@ const CACHE_TTL = 60000;
 function menuInicial() {
     return `Posso te ajudar com algumas opções ✨
 
-1️⃣ Valores para período (2h30)
-2️⃣ Valores para pernoite (12h)
+1️⃣ Valores para Períodos (1h e 2h)
+2️⃣ Valores para Pernoite (12h)
 3️⃣ Tirar uma dúvida
 4️⃣ Fazer uma reserva
 
@@ -40,7 +40,7 @@ function interpretarMenu(msg) {
     // Evita acionar o menu se o usuário enviou uma frase longa
     if (msg.length > 25) return null;
 
-    if (t === "1" || t.includes("periodo") || t.includes("2h") || t.includes("2:30")) return "periodo";
+    if (t === "1" || t.includes("periodo") || t.includes("1h") || t.includes("2h")) return "periodo";
     if (t === "2" || t.includes("pernoite") || t.includes("12h")) return "pernoite";
     if (t === "3" || t.includes("duvida")) return "duvida";
     if (t === "4" || t.includes("reserva")) return "reserva";
@@ -61,15 +61,15 @@ function respostaDireta(msg) {
     }
 
     if (t.includes("hora extra")) {
-        return "Hora extra: Apartamento +R$20/h | Suítes +R$30/h ✨";
+        return "Hora extra: Apartamento +R$20/h | Master +R$30/h | Intensy +R$35/h | Deuses +R$40/h ✨";
     }
 
     if (t.includes("3 pessoas") || t.includes("mais pessoas")) {
         return "Após a 2ª pessoa, é cobrado R$ 30 por pessoa adicional 💖";
     }
 
-    if (t.includes("pagar só o tempo") || t.includes("pagar so o tempo") || t.includes("pagar proporcional") || t.includes("pagar 1 hora") || t.includes("pagar uma hora")) {
-        return "O valor cobrado é sempre o do período fechado (2h30 ou 12h), mesmo que você decida sair antes. Não trabalhamos com valores proporcionais ou cobrança por hora fracionada. ✨";
+    if (t.includes("pagar só o tempo") || t.includes("pagar so o tempo") || t.includes("pagar proporcional") || (t.includes("pagar") && (t.includes("minutos") || t.includes("meia hora")))) {
+        return "O valor cobrado é sempre o do período fechado contratado (1h, 2h ou 12h), mesmo que você decida sair antes. Não trabalhamos com valores proporcionais. ✨";
     }
 
     return null;
@@ -84,7 +84,7 @@ function detectarPreco(msg) {
 
     return {
         geral: /(preço|valor|quanto)/.test(t),
-        periodo: /(2h|2:30|periodo)/.test(t),
+        periodo: /(1h|2h|periodo)/.test(t),
         pernoite: /(pernoite|12h)/.test(t)
     };
 }
@@ -183,13 +183,18 @@ const functionHandlers = {
 
             const formatTime = (date) => new Date(date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 
-            const limiteHoras = room.status === 'ocupado-pernoite' ? 12 : 2.5;
+            const limiteHoras = room.status === 'ocupado-pernoite' ? 12 : 1; // Base de 1h como segurança
             const tempoTotalRestanteMins = (limiteHoras * 60) - diffMin;
             const excedeuLimite = tempoTotalRestanteMins < 0;
             
             let taxaHoraExtra = 'R$ 20,00';
-            if (room.tipoquarto.toLowerCase().includes('suite') || room.tipoquarto.toLowerCase().includes('suíte') || room.tipoquarto.toLowerCase().includes('master')) {
+            const tipo = room.tipoquarto.toLowerCase();
+            if (tipo.includes('master')) {
                 taxaHoraExtra = 'R$ 30,00';
+            } else if (tipo.includes('intensy')) {
+                taxaHoraExtra = 'R$ 35,00';
+            } else if (tipo.includes('deus')) {
+                taxaHoraExtra = 'R$ 40,00';
             }
 
             let msgExtra = "";
@@ -197,11 +202,11 @@ const functionHandlers = {
                 const tempoExcedido = Math.abs(tempoTotalRestanteMins);
                 const he = Math.floor(tempoExcedido / 60);
                 const me = Math.floor(tempoExcedido % 60);
-                msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Informe que o tempo normal (${limiteHoras}h) JÁ PASSOU e eles já excederam o limite em ${he}h e ${me}min. Diga também que a taxa da hora (ou fração) adicional para esse tipo de quarto é ${taxaHoraExtra}. Pergunte educadamente se desejam fechar a conta ou se pretendem continuar no quarto. Transforme isso num texto amigável, não seja robótico.`;
+                msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Informe que o tempo contratado (${limiteHoras}h) JÁ PASSOU e eles já excederam o limite em ${he}h e ${me}min (fração de hora conta como hora cheia). Diga também que a taxa da hora adicional para esse quarto é ${taxaHoraExtra}. Pergunte educadamente se desejam fechar a conta ou se pretendem continuar no quarto. Transforme isso num texto amigável, não seja robótico.`;
             } else {
                 const hr = Math.floor(tempoTotalRestanteMins / 60);
                 const mr = Math.floor(tempoTotalRestanteMins % 60);
-                msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Diga que já se passou ${hours}h e ${mins}min desde a entrada, e que FALTAM exatamente ${hr}h e ${mr}min para vencer o período contratado (${limiteHoras}h). Aproveite para avisar gentilmente que caso fiquem além desse horário, será cobrada hora extra de ${taxaHoraExtra}/hora. Transforme isso num texto amigável e natural.`;
+                msgExtra = `INSTRUÇÃO DE RESPOSTA OBRIGATÓRIA: Diga que já se passou ${hours}h e ${mins}min desde a entrada. Se o período for o de 1h, faltam ${hr}h e ${mr}min (ajuste se for 2h ou 12h). Avise gentilmente que caso fiquem além do período contratado, será cobrada hora extra de ${taxaHoraExtra}/hora. Transforme isso num texto amigável e natural.`;
             }
 
             const pernoiteVencimento = new Date(statusTime.getTime() + (12 * 3600000));
@@ -311,7 +316,7 @@ async function getMotelAIResponseInternal(userText, history = []) {
         const preco = detectarPreco(userText);
 
         if (preco.geral && !preco.periodo && !preco.pernoite) {
-            return "Você prefere 2h30 ou pernoite (12h)? ✨";
+            return "Você prefere 1h, 2h ou pernoite (12h)? ✨";
         }
 
         if (preco.periodo) return PRECO_PERIODO;

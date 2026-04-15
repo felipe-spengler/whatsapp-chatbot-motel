@@ -11,13 +11,19 @@ const BOT_PREFIX = '*Assistente Virtual:*';
 
 
 async function handleMessage(client, message) {
-    console.log(`[DEBUG] Mensagem recebida de ${message.from}: "${message.body}" (fromMe: ${message.fromMe})`);
-
-    // 1. Filtros Básicos
+    // Filtros Básicos
     if (!message.from || message.isGroupMsg || message.from.includes('broadcast')) {
-        console.log(`[DEBUG] Ignorada: Grupo, broadcast ou sem remetente.`);
         return;
     }
+
+    const textRaw = message.body ? message.body.trim() : '';
+
+    // Ignora mensagens sem texto (exceto áudio, que tratamos depois)
+    if (!textRaw && message.type !== 'audio' && message.type !== 'ptt') {
+        return;
+    }
+
+    console.log(`[DEBUG] Mensagem recebida de ${message.from}: "${textRaw || '['+message.type+']'}" (fromMe: ${message.fromMe})`);
 
     if (message.timestamp < startTime) {
         console.log(`[DEBUG] Ignorada: Mensagem antiga (${message.timestamp} < ${startTime}).`);
@@ -49,13 +55,13 @@ async function handleMessage(client, message) {
 
     const session = sessions[from];
 
-    // 3. Trava de Intervenção Humana (5 minutos)
-    const fiveMinutes = 5 * 60 * 1000;
-    if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
+    // 3. Trava de Intervenção Humana (2 minutos)
+    const pauseTime = 2 * 60 * 1000;
+    if (Date.now() - session.lastHumanInteraction < pauseTime) {
         console.log(`[DEBUG] AI Silenciada por intervenção humana em ${from}.`);
 
         // Notifica o admin apenas 1x por janela de intervenção (evita spam)
-        if (NOTIFICATION_NUMBER && (Date.now() - (session.humanNotifiedAt || 0)) > fiveMinutes) {
+        if (NOTIFICATION_NUMBER && (Date.now() - (session.humanNotifiedAt || 0)) > pauseTime) {
             session.humanNotifiedAt = Date.now();
             const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
             const rawNumber = from.replace('@c.us', '');
@@ -64,7 +70,7 @@ async function handleMessage(client, message) {
             try {
                 await client.sendText(
                     `${NOTIFICATION_NUMBER}@c.us`,
-                    `🔕 *BOT SILENCIADO:* O cliente ${nameStr} enviou uma mensagem mas o bot está pausado por intervenção humana. Responda manualmente ou aguarde 5 min para o bot retomar.`
+                    `🔕 *BOT SILENCIADO:* O cliente ${nameStr} enviou uma mensagem mas o bot está pausado por intervenção humana. Responda manualmente ou aguarde 2 min para o bot retomar.`
                 );
             } catch (e) {
                 console.error('[NOTIFICAÇÃO] Erro ao avisar sobre bot silenciado:', e.message);
@@ -80,7 +86,7 @@ async function handleMessage(client, message) {
     // 5. Marcação de entrada
     session.lastSender = 'customer';
     session.lastActivity = Date.now();
-    let text = message.body ? message.body.trim() : '';
+    let text = textRaw;
 
     // --- CAMADA DE SPEECH-TO-TEXT (AUDIO) ---
     if (message.type === 'audio' || message.type === 'ptt') {
@@ -109,10 +115,10 @@ async function handleMessage(client, message) {
         clearTimeout(session.bufferTimeout);
     }
 
-    // Inicia um timer de 4 segundos para aguardar mais mensagens
+    // Inicia um timer de 3 segundos para aguardar mais mensagens (buffer)
     session.bufferTimeout = setTimeout(async () => {
-        // Re-verifica intervenção humana: pode ter ocorrido durante os 4.5s de espera
-        if (Date.now() - session.lastHumanInteraction < 5 * 60 * 1000) {
+        // Re-verifica intervenção humana: pode ter ocorrido durante a espera
+        if (Date.now() - session.lastHumanInteraction < 2 * 60 * 1000) {
             console.log(`[DEBUG] Buffer cancelado: intervenção humana ocorreu durante a espera em ${from}.`);
             session.messageBuffer = [];
             return;
@@ -150,12 +156,12 @@ async function handleMessage(client, message) {
 
             session.messageCount++;
 
-            // --- RESPOSTAS RÁPIDAS (GREETINGS) ---
+            // --- RESPOSTAS RÁPIDAS (SALUDAÇÃO INICIAL) ---
             const greetings = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'oie', 'tudo bem', 'tudo joia', 'opa'];
-            // Permite saudações no messageBuffer se só enviou isso ou frase pequena repetitiva
             const isOnlyGreeting = greetings.includes(combinedText.toLowerCase().trim()) || (combinedText.length <= 8 && greetings.some(g => combinedText.toLowerCase().includes(g)));
 
-            if (isOnlyGreeting && session.messageCount === 1) {
+            if (isOnlyGreeting && session.history.length === 0) {
+                console.log(`[DEBUG] Resposta rápida (saudação) para ${from}.`);
                 const hour = new Date().getHours() - 3; // Brasil
                 let greet = (hour >= 5 && hour < 12) ? "Bom dia!" : (hour >= 12 && hour < 18) ? "Boa tarde!" : "Boa noite!";
                 const staticResponse = `${greet} ✨ Bem-vindo ao *Motel Intensy*. Como posso ajudar você hoje? 💖`;
@@ -174,13 +180,20 @@ async function handleMessage(client, message) {
             }
 
             // --- PROCESSAMENTO IA ---
+            console.log(`[DEBUG] Gerando resposta IA para ${from}...`);
             const aiResponse = await getMotelAIResponse(combinedText, session.history);
+
+            if (!aiResponse || aiResponse.trim().length === 0) {
+                console.warn(`[DEBUG] IA retornou resposta vazia para ${from}.`);
+                session.isProcessing = false;
+                return;
+            }
 
             // Atualiza Histórico
             session.history.push({ role: 'user', content: combinedText }, { role: 'assistant', content: aiResponse });
             while (session.history.length > 20) session.history.shift();
 
-            // Verificação de Transferência
+            // Verificação de Transferência e Resposta
             const textLower = combinedText.toLowerCase();
             const transferKeywords = [
                 'atendente', 'humano', 'falar com alguém', 'pessoa', 'atendimento', 'gerente',
@@ -197,13 +210,11 @@ async function handleMessage(client, message) {
 
             if (userAskedForHuman || userRequestedAction || aiResponse.includes("transferir") || aiResponse.includes("acionado") || aiResponse.includes("notificado")) {
                 try {
-                    // SILENCIA O BOT IMEDIATAMENTE (Pausa de 5 min)
                     session.lastHumanInteraction = Date.now();
-                    
                     const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
                     const realNumber = (message.sender && message.sender.formattedName) ? message.sender.formattedName : from.split('@')[0];
                     const nameStr = notifyName ? `*${notifyName}* ` : '';
-                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA ATIVA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda ou estorno. Bot pausado por 5 min.`);
+                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA ATIVA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda ou estorno. Bot pausado por 2 min.`);
                     console.log(`[NOTIFICAÇÃO] Auto-pause e aviso de transferência enviado para o Admin.`);
                 } catch (notifErr) {
                     console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin.', notifErr.message);
@@ -211,24 +222,24 @@ async function handleMessage(client, message) {
             }
 
             // Simulação Humana e Envio
-            const readingDelay = 2000 + (Math.random() * 2000); // 2 a 4 segundos
+            const readingDelay = 2000 + (Math.random() * 2000);
             await new Promise(r => setTimeout(r, readingDelay));
 
             await client.startTyping(from);
 
             const typingDelay = Math.min(Math.max(aiResponse.length * 15, 2000), 5000);
             const randomFuzzy = Math.random() * 1500;
-
             await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
 
-            // CHECAGEM DE ÚLTIMO SEGUNDO: se o humano interveio durante os segundos de simulação (reading/typing)
-            if (Date.now() - session.lastHumanInteraction < fiveMinutes) {
-                console.log(`[REAL] Envio CANCELADO no último segundo por intervenção humana em ${from}.`);
+            // Checagem de interrupção humana no último segundo
+            if (Date.now() - session.lastHumanInteraction < 2 * 60 * 1000) {
+                console.log(`[REAL] Envio CANCELADO no último segundo (humano interveio) em ${from}.`);
                 await client.stopTyping(from);
                 return;
             }
 
             const responseWithPrefix = `${BOT_PREFIX}\n\n${aiResponse}`;
+            console.log(`[DEBUG] Enviando resposta para ${from}.`);
             await client.sendText(from, responseWithPrefix);
 
             session.lastBotSentTime = Date.now();
@@ -243,7 +254,7 @@ async function handleMessage(client, message) {
         }
 
         }); // fecha enqueueJob
-    }, 4500);
+    }, 3000);
 }
 
 async function handleAnyMessage(client, message) {
@@ -266,6 +277,11 @@ async function handleAnyMessage(client, message) {
         sessions[to].lastHumanInteraction = Date.now();
         sessions[to].lastSender = 'human';
         
+        // Mantém a sincronia da IA com o que o humano conversou
+        const humanText = message.body || "[Mídia/Arquivo]";
+        sessions[to].history.push({ role: 'assistant', content: humanText });
+        while (sessions[to].history.length > 20) sessions[to].history.shift();
+
         // CANCELA qualquer processamento em curso ou na fila de buffer
         if (sessions[to].bufferTimeout) {
             clearTimeout(sessions[to].bufferTimeout);
@@ -274,7 +290,8 @@ async function handleAnyMessage(client, message) {
             console.log(`[REAL] Buffer cancelado para ${to}.`);
         }
     } else {
-        // Se foi o bot, apenas atualizamos o tempo para o watchdog de 3.5s (segurança extra)
+        // Se foi o bot e o prefixo existe, removemos o prefixo para salvar no histórico limpo (opcional)
+        // Por segurança, apenas atualizamos o tempo
         sessions[to].lastBotSentTime = Date.now();
     }
 }

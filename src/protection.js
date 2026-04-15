@@ -28,7 +28,7 @@ function startMemoryWatchdog(sessions, onCritical) {
         const heapMB = Math.round(used.heapUsed / 1024 / 1024);
         const rssMB  = Math.round(used.rss       / 1024 / 1024);
 
-        console.log(`[MEM] Heap: ${heapMB} MB | RSS: ${rssMB} MB`);
+        // console.log(`[MEM] Heap: ${heapMB} MB | RSS: ${rssMB} MB`);
 
         // — Limpeza de sessões inativas (cada ciclo de 5 min) —
         const now = Date.now();
@@ -48,7 +48,7 @@ function startMemoryWatchdog(sessions, onCritical) {
         // — GC manual se disponível —
         if (global.gc) {
             global.gc();
-            console.log('[MEM] GC manual executado.');
+            // console.log('[MEM] GC manual executado.');
         }
 
         // — Alerta de heap crítico —
@@ -124,7 +124,7 @@ function withTimeout(promise, ms, label = 'operação') {
 //  MAX_CONCURRENT = 2: Chromium + WPPConnect já ocupam ~200–350 MB sozinhos.
 //  Rodar 3 respostas de IA ao mesmo tempo junto com o browser é risco de OOM.
 const MAX_CONCURRENT  = parseInt(process.env.MAX_CONCURRENT  || '2');  // máx 2 jobs simultâneos
-const RATE_COOLDOWN_MS = parseInt(process.env.RATE_COOLDOWN_MS || '3000'); // mínimo 3s entre msgs do mesmo número
+const RATE_COOLDOWN_MS = parseInt(process.env.RATE_COOLDOWN_MS || '1500'); // mínimo 1.5s entre msgs do mesmo número
 const RATE_LIMIT_MAX  = parseInt(process.env.RATE_LIMIT_MAX  || '6');  // máx 6 msgs por minuto por número (era 10)
 const RATE_WINDOW_MS  = parseInt(process.env.RATE_WINDOW_MS  || '60000'); // janela de 1 minuto
 
