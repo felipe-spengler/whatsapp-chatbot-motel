@@ -134,11 +134,21 @@ async function getDynamicContext(userText) {
             const freeRooms = rooms.filter(r => r.status === 'livre');
             const availableTypes = [...new Set(freeRooms.map(r => r.tipoquarto))];
             
-            let avContext = '';
+            // Mapeamento de descrições/itens por categoria (pega do primeiro quarto de cada tipo para simplificar)
+            const typeDescriptions = rooms.reduce((acc, r) => {
+                if (!acc[r.tipoquarto] && r.itens) acc[r.tipoquarto] = r.itens;
+                return acc;
+            }, {});
+
+            let avContext = `\n\n[O QUE TEM EM CADA CATEGORIA]:\n`;
+            Object.entries(typeDescriptions).forEach(([type, items]) => {
+                avContext += `- ${type}: ${items}\n`;
+            });
+
             if (availableTypes.length > 0) {
-                avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos livres: ${availableTypes.join(', ')}.`;
+                avContext += `\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos LIVRES: ${availableTypes.join(', ')}.`;
             } else {
-                avContext = `\n\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
+                avContext += `\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
             }
 
             availabilityCache = { data: avContext, lastUpdate: now };

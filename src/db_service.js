@@ -29,7 +29,8 @@ async function getFullRoomsStatus() {
                 q.addPessoa,
                 s.atualquarto as status,
                 s.horastatus,
-                s.periodo
+                s.periodo,
+                q.itens
             FROM quartos q
             LEFT JOIN status s ON q.numeroquarto = s.numeroquarto
         `;
@@ -70,6 +71,7 @@ async function getRoomStatus(roomNumber) {
                 q.tipoquarto, 
                 q.valorquarto, 
                 q.pernoitequarto, 
+                q.itens,
                 s.atualquarto as status
             FROM quartos q
             LEFT JOIN status s ON q.numeroquarto = s.numeroquarto
