@@ -10,7 +10,19 @@ const { withCircuitBreaker, withTimeout } = require('./protection');
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
 const PRECO_PERIODO = fs.readFileSync(path.join(__dirname, '..', 'preco_periodo.txt'), 'utf8');
 const PRECO_PERNOITE = fs.readFileSync(path.join(__dirname, '..', 'preco_pernoite.txt'), 'utf8');
-const PRICE_CONTEXT = `\n\n[TABELA DE PREÇOS]:\nPeríodos (1h e 2h):\n${PRECO_PERIODO}\n\nPernoite (12h):\n${PRECO_PERNOITE}\n`;
+const PRICE_CONTEXT = `
+[DADOS DE PREÇOS E CATEGORIAS]:
+Abaixo estão os valores oficiais do motel. Use-os com precisão:
+
+${PRECO_PERIODO}
+
+${PRECO_PERNOITE}
+
+INSTRUÇÃO PARA PREÇOS:
+1. Quando o cliente perguntar valores sem especificar o quarto, informe a faixa de preço por período ou liste as opções brevemente.
+2. NUNCA multiplique o valor de 1h para calcular 2h. Use sempre os valores da tabela.
+3. SEMPRE identifique o nome da suíte ao passar um valor.
+`;
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = 'https://api.groq.com/openai/v1';
@@ -306,21 +318,9 @@ async function getMotelAIResponseInternal(userText, history = []) {
     if (history.length <= 2) {
         const opcao = interpretarMenu(userText);
 
-        if (opcao === "periodo") return PRECO_PERIODO;
-        if (opcao === "pernoite") return PRECO_PERNOITE;
-
         if (opcao === "reserva") {
             return "Perfeito! Me diga qual suíte deseja ✨";
         }
-
-        const preco = detectarPreco(userText);
-
-        if (preco.geral && !preco.periodo && !preco.pernoite) {
-            return "Você prefere 1h, 2h ou pernoite (12h)? ✨";
-        }
-
-        if (preco.periodo) return PRECO_PERIODO;
-        if (preco.pernoite) return PRECO_PERNOITE;
     }
 
     const dynamicContext = await getDynamicContext(userText);
