@@ -19,9 +19,11 @@ ${PRECO_PERIODO}
 ${PRECO_PERNOITE}
 
 INSTRUÇÃO PARA PREÇOS:
-1. Quando o cliente perguntar valores sem especificar o quarto, informe a faixa de preço por período ou liste as opções brevemente.
-2. NUNCA multiplique o valor de 1h para calcular 2h. Use sempre os valores da tabela.
+1. Trabalhe com duas categorias de tempo: **Período (1h ou 2h)** e **Pernoite (12h)**. 
+2. Sempre que informar o valor de 1h, informe JUNTOS o de 2h, destacando que por "apenas alguns reais a mais" (cite a diferença exata, ex: R$ 5) o cliente ganha o dobro de tempo.
 3. SEMPRE identifique o nome da suíte ao passar um valor.
+4. HIERARQUIA DE CATEGORIAS (da menor para maior): Apartamento < Suíte Master < Suíte Intensy < Suíte dos Deuses.
+5. Se a categoria pedida estiver indisponível, aplique a regra de "Upgrade com R$ 10 de desconto" **APENAS se a categoria oferecida for SUPERIOR** à solicitada. Se for inferior, mantenha o preço normal.
 `;
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
