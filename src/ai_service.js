@@ -10,6 +10,7 @@ const { withCircuitBreaker, withTimeout } = require('./protection');
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
 const PRECO_PERIODO = fs.readFileSync(path.join(__dirname, '..', 'preco_periodo.txt'), 'utf8');
 const PRECO_PERNOITE = fs.readFileSync(path.join(__dirname, '..', 'preco_pernoite.txt'), 'utf8');
+const PRECO_HORA_EXTRA = fs.readFileSync(path.join(__dirname, '..', 'preco_hora_extra.txt'), 'utf8');
 const PRICE_CONTEXT = `
 [DADOS DE PREÇOS E CATEGORIAS]:
 Abaixo estão os valores oficiais do motel. Use-os com precisão:
@@ -17,8 +18,10 @@ Abaixo estão os valores oficiais do motel. Use-os com precisão:
 ${PRECO_PERIODO}
 
 ${PRECO_PERNOITE}
+ 
+${PRECO_HORA_EXTRA}
 
-INSTRUÇÃO PARA PREÇOS:
+ INSTRUÇÃO PARA PREÇOS:
 1. Trabalhe com duas categorias de tempo: **Período (1h ou 2h)** e **Pernoite (12h)**. 
 2. Sempre que informar o valor de 1h, informe JUNTOS o de 2h, destacando que por "apenas alguns reais a mais" (cite a diferença exata, ex: R$ 5) o cliente ganha o dobro de tempo.
 3. SEMPRE identifique o nome da suíte ao passar um valor.
@@ -132,11 +135,23 @@ async function getDynamicContext(userText) {
         async () => {
             const rooms = await withTimeout(db.getFullRoomsStatus(), 8000, 'MySQL getFullRoomsStatus');
             const freeRooms = rooms.filter(r => r.status === 'livre');
-            const availableTypes = [...new Set(freeRooms.map(r => r.tipoquarto))];
             
-            // Mapeamento de descrições/itens por categoria (pega do primeiro quarto de cada tipo para simplificar)
+            // Normalização de nomes para a IA
+            const mapType = (t) => {
+                const lower = t.toLowerCase();
+                if (lower.includes('apartamento') || lower.includes('padrão')) return 'Apartamento';
+                if (lower.includes('master')) return 'Suíte Master';
+                if (lower.includes('intensy')) return 'Suíte Intensy';
+                if (lower.includes('deuses') || lower.includes('deus')) return 'Suíte dos Deuses';
+                return t;
+            };
+
+            const availableTypes = [...new Set(freeRooms.map(r => mapType(r.tipoquarto)))];
+            
+            // Mapeamento de descrições/itens por categoria
             const typeDescriptions = rooms.reduce((acc, r) => {
-                if (!acc[r.tipoquarto] && r.itens) acc[r.tipoquarto] = r.itens;
+                const mappedType = mapType(r.tipoquarto);
+                if (!acc[mappedType] && r.itens) acc[mappedType] = r.itens;
                 return acc;
             }, {});
 
@@ -146,7 +161,8 @@ async function getDynamicContext(userText) {
             });
 
             if (availableTypes.length > 0) {
-                avContext += `\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos LIVRES: ${availableTypes.join(', ')}.`;
+                avContext += `\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos LIVRES no momento: ${availableTypes.join(', ')}.`;
+                avContext += `\nIMPORTANTE: Se o cliente perguntar por uma categoria que NÃO está nesta lista, informe que ela está esgotada no momento.`;
             } else {
                 avContext += `\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
             }
@@ -168,7 +184,10 @@ const tools = [
             parameters: {
                 type: 'object',
                 properties: {
-                    numero_quarto: { type: 'string', description: 'Número exato do quarto que o cliente informou estar. Use esta função para saber o horário de entrada e calcular quanto tempo falta ou o horário de saída (12h após a entrada) caso ele queira mudar para pernoite.' }
+                    numero_quarto: { 
+                        type: 'string', 
+                        description: 'Número do quarto onde o cliente JÁ ESTÁ HOSPEDADO. Use esta função APENAS se o cliente disser que já está no motel ou perguntar quanto tempo ainda tem. NUNCA use para reservas ou consultas de preços.' 
+                    }
                 },
                 required: ['numero_quarto']
             }
@@ -179,10 +198,14 @@ const tools = [
 const functionHandlers = {
     verificar_tempo_permanencia: async ({ numero_quarto }) => {
         try {
-            const rooms = await db.getFullRoomsStatus();
-            const room = rooms.find(r => r.numeroquarto == numero_quarto);
+            if (!numero_quarto || String(numero_quarto).length > 5) {
+                return { erro: "Número de quarto inválido. Informe apenas o número (ex: 10, 101)." };
+            }
 
-            if (!room) return { erro: `Não encontrei o quarto número ${numero_quarto} no sistema.` };
+            const rooms = await db.getFullRoomsStatus();
+            const room = rooms.find(r => String(r.numeroquarto) === String(numero_quarto));
+
+            if (!room) return { erro: `Não encontrei o quarto número ${numero_quarto} no sistema. Verifique se o número está correto.` };
 
             const statusOcupado = ['ocupado-periodo', 'ocupado-pernoite'];
             if (!statusOcupado.includes(room.status)) {
@@ -213,12 +236,20 @@ const functionHandlers = {
             
             let taxaHoraExtra = 'R$ 20,00';
             const tipo = room.tipoquarto.toLowerCase();
+            const precosExtraText = fs.readFileSync(path.join(__dirname, '..', 'preco_hora_extra.txt'), 'utf8');
+            
             if (tipo.includes('master')) {
-                taxaHoraExtra = 'R$ 30,00';
+                const match = precosExtraText.match(/Master: R\$ (\d+)/);
+                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 30,00';
             } else if (tipo.includes('intensy')) {
-                taxaHoraExtra = 'R$ 35,00';
+                const match = precosExtraText.match(/Intensy: R\$ (\d+)/);
+                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 35,00';
             } else if (tipo.includes('deus')) {
-                taxaHoraExtra = 'R$ 40,00';
+                const match = precosExtraText.match(/Deuses: R\$ (\d+)/);
+                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 40,00';
+            } else {
+                const match = precosExtraText.match(/Apartamento: R\$ (\d+)/);
+                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 20,00';
             }
 
             let msgExtra = "";
@@ -235,9 +266,17 @@ const functionHandlers = {
 
             const pernoiteVencimento = new Date(statusTime.getTime() + (12 * 3600000));
 
+            // Preços oficiais para ajudar a IA a não alucinar
+            let precosOficiais = { "1h": "R$ 65", "2h": "R$ 70", "Pernoite": "R$ 130" };
+            if (tipo.includes('master')) precosOficiais = { "1h": "R$ 95", "2h": "R$ 105", "Pernoite": "R$ 190" };
+            else if (tipo.includes('intensy')) precosOficiais = { "1h": "R$ 105", "2h": "R$ 120", "Pernoite": "R$ 210" };
+            else if (tipo.includes('deus')) precosOficiais = { "1h": "R$ 120", "2h": "R$ 140", "Pernoite": "R$ 250" };
+
             return {
                 quarto: numero_quarto,
                 tipo: room.tipoquarto,
+                categoria_mapeada: tipo.includes('master') ? 'Suíte Master' : (tipo.includes('intensy') ? 'Suíte Intensy' : (tipo.includes('deus') ? 'Suíte dos Deuses' : 'Apartamento')),
+                precos_oficiais_desta_categoria: precosOficiais,
                 tempo_decorrido: `${hours}h ${mins}min`,
                 horario_entrada: formatTime(room.horastatus),
                 horario_vencimento_pernoite: formatTime(pernoiteVencimento),
@@ -253,7 +292,7 @@ const functionHandlers = {
 // ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
         const dynamicContext = await getDynamicContext(userText);
 
         const chat = model.startChat({
