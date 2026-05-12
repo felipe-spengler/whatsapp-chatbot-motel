@@ -151,7 +151,9 @@ async function getDynamicContext(userText) {
             // Mapeamento de descrições/itens por categoria
             const typeDescriptions = rooms.reduce((acc, r) => {
                 const mappedType = mapType(r.tipoquarto);
-                if (!acc[mappedType] && r.itens) acc[mappedType] = r.itens;
+                if (!acc[mappedType]) {
+                    acc[mappedType] = r.itens || 'Nenhuma informação técnica cadastrada no banco de dados.';
+                }
                 return acc;
             }, {});
 
@@ -292,7 +294,7 @@ const functionHandlers = {
 // ===== FALLBACK =====
 async function getGeminiResponse(userText, history = []) {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         const dynamicContext = await getDynamicContext(userText);
 
         const chat = model.startChat({
