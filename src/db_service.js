@@ -30,6 +30,7 @@ async function getFullRoomsStatus() {
                 s.atualquarto as status,
                 s.horastatus,
                 s.periodo,
+                s.adicional,
                 q.itens
             FROM quartos q
             LEFT JOIN status s ON q.numeroquarto = s.numeroquarto
@@ -39,6 +40,31 @@ async function getFullRoomsStatus() {
     } catch (error) {
         console.error('Error fetching full room status:', error.message);
         throw error;
+    }
+}
+
+/**
+ * Fetch all pricing periods for all room types
+ */
+async function getPricingPeriods() {
+    try {
+        const query = `
+            SELECT 
+                pq.numeroquarto, 
+                pq.descricao, 
+                pq.tempo_minutos, 
+                pq.valor, 
+                pq.is_pernoite,
+                q.tipoquarto
+            FROM periodos_quarto pq
+            JOIN quartos q ON pq.numeroquarto = q.numeroquarto
+            ORDER BY pq.ordem ASC
+        `;
+        const [rows] = await pool.query(query);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching pricing periods:', error.message);
+        return [];
     }
 }
 
@@ -72,7 +98,8 @@ async function getRoomStatus(roomNumber) {
                 q.valorquarto, 
                 q.pernoitequarto, 
                 q.itens,
-                s.atualquarto as status
+                s.atualquarto as status,
+                s.adicional
             FROM quartos q
             LEFT JOIN status s ON q.numeroquarto = s.numeroquarto
             WHERE q.numeroquarto = ?
@@ -87,6 +114,7 @@ async function getRoomStatus(roomNumber) {
 module.exports = { 
     pool, 
     getFullRoomsStatus, 
+    getPricingPeriods,
     checkAvailabilityByType, 
     getRoomStatus 
 };

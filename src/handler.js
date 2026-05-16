@@ -202,7 +202,7 @@ async function handleMessage(client, message) {
             const actionKeywords = [
                 'abrir portão', 'abrir portao', 'abre o portao', 'abre o portão',
                 'quero sair', 'liberar saída', 'liberar saida', 'checkout agora',
-                'pedir saída', 'pedir saida'
+                'pedir saída', 'pedir saida', 'interfone', 'portão', 'portao'
             ];
 
             const userAskedForHuman = transferKeywords.some(kw => textLower.includes(kw));

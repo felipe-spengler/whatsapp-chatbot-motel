@@ -23,7 +23,7 @@ ${PRECO_HORA_EXTRA}
 
  INSTRUÇÃO PARA PREÇOS:
 1. Trabalhe com duas categorias de tempo: **Período (1h ou 2h)** e **Pernoite (12h)**. 
-2. Sempre que informar o valor de 1h, informe JUNTOS o de 2h, destacando que por "apenas alguns reais a mais" (cite a diferença exata, ex: R$ 5) o cliente ganha o dobro de tempo.
+2. Sempre que informar o valor de 1h, informe JUNTOS o de 2h, destacando que por "apenas alguns reais a mais" (cite a diferença exata, ex: R$ 5) o cliente ganha o dobro de tempo. **NÃO faça isso se o cliente já tiver solicitado Pernoite.**
 3. SEMPRE identifique o nome da suíte ao passar um valor.
 4. HIERARQUIA DE CATEGORIAS (da menor para maior): Apartamento < Suíte Master < Suíte Intensy < Suíte dos Deuses.
 5. Se a categoria pedida estiver indisponível, aplique a regra de "Upgrade com R$ 10 de desconto" **APENAS se a categoria oferecida for SUPERIOR** à solicitada. Se for inferior, mantenha o preço normal.
@@ -133,7 +133,11 @@ async function getDynamicContext(userText) {
     return await withCircuitBreaker(
         'mysql',
         async () => {
-            const rooms = await withTimeout(db.getFullRoomsStatus(), 8000, 'MySQL getFullRoomsStatus');
+            const [rooms, periods] = await Promise.all([
+                withTimeout(db.getFullRoomsStatus(), 8000, 'MySQL getFullRoomsStatus'),
+                withTimeout(db.getPricingPeriods(), 8000, 'MySQL getPricingPeriods')
+            ]);
+            
             const freeRooms = rooms.filter(r => r.status === 'livre');
             
             // Normalização de nomes para a IA
@@ -157,7 +161,52 @@ async function getDynamicContext(userText) {
                 return acc;
             }, {});
 
-            let avContext = `\n\n[O QUE TEM EM CADA CATEGORIA]:\n`;
+            // Mapeamento de Preços por Categoria (da tabela quartos/status)
+            const typePricing = rooms.reduce((acc, r) => {
+                const mappedType = mapType(r.tipoquarto);
+                if (!acc[mappedType]) {
+                    acc[mappedType] = {
+                        extra: r.adicional || 20,
+                        pernoite: r.pernoitequarto || 130
+                    };
+                }
+                return acc;
+            }, {});
+
+            // Mapeamento de Períodos (da tabela periodos_quarto)
+            const categoryPeriods = periods.reduce((acc, p) => {
+                const mappedType = mapType(p.tipoquarto);
+                if (!acc[mappedType]) acc[mappedType] = [];
+                acc[mappedType].push({
+                    desc: p.descricao,
+                    valor: p.valor,
+                    tempo: p.tempo_minutos
+                });
+                return acc;
+            }, {});
+
+            let avContext = `\n\n[DADOS DE PREÇOS ATUALIZADOS DO SISTEMA]:\n`;
+            
+            const categories = ['Apartamento', 'Suíte Master', 'Suíte Intensy', 'Suíte dos Deuses'];
+            categories.forEach(cat => {
+                avContext += `--- ${cat.toUpperCase()} ---\n`;
+                
+                // Períodos
+                const catPers = categoryPeriods[cat] || [];
+                if (catPers.length > 0) {
+                    catPers.forEach(p => {
+                        avContext += `- ${p.desc}: R$ ${p.valor}\n`;
+                    });
+                } else {
+                    // Fallback se não houver na periodos_quarto
+                    avContext += `- Pernoite: R$ ${typePricing[cat]?.pernoite || 'Sob consulta'}\n`;
+                }
+
+                // Hora Extra
+                avContext += `- Hora Extra: R$ ${typePricing[cat]?.extra || 20}\n\n`;
+            });
+
+            avContext += `\n[O QUE TEM EM CADA CATEGORIA]:\n`;
             Object.entries(typeDescriptions).forEach(([type, items]) => {
                 avContext += `- ${type}: ${items}\n`;
             });
@@ -236,23 +285,7 @@ const functionHandlers = {
             const tempoTotalRestanteMins = (limiteHoras * 60) - diffMin;
             const excedeuLimite = tempoTotalRestanteMins < 0;
             
-            let taxaHoraExtra = 'R$ 20,00';
-            const tipo = room.tipoquarto.toLowerCase();
-            const precosExtraText = fs.readFileSync(path.join(__dirname, '..', 'preco_hora_extra.txt'), 'utf8');
-            
-            if (tipo.includes('master')) {
-                const match = precosExtraText.match(/Master: R\$ (\d+)/);
-                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 30,00';
-            } else if (tipo.includes('intensy')) {
-                const match = precosExtraText.match(/Intensy: R\$ (\d+)/);
-                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 35,00';
-            } else if (tipo.includes('deus')) {
-                const match = precosExtraText.match(/Deuses: R\$ (\d+)/);
-                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 40,00';
-            } else {
-                const match = precosExtraText.match(/Apartamento: R\$ (\d+)/);
-                taxaHoraExtra = match ? `R$ ${match[1]},00` : 'R$ 20,00';
-            }
+            let taxaHoraExtra = `R$ ${room.adicional || 20},00`;
 
             let msgExtra = "";
             if (excedeuLimite) {
@@ -268,11 +301,36 @@ const functionHandlers = {
 
             const pernoiteVencimento = new Date(statusTime.getTime() + (12 * 3600000));
 
-            // Preços oficiais para ajudar a IA a não alucinar
-            let precosOficiais = { "1h": "R$ 65", "2h": "R$ 70", "Pernoite": "R$ 130" };
-            if (tipo.includes('master')) precosOficiais = { "1h": "R$ 95", "2h": "R$ 105", "Pernoite": "R$ 190" };
-            else if (tipo.includes('intensy')) precosOficiais = { "1h": "R$ 105", "2h": "R$ 120", "Pernoite": "R$ 210" };
-            else if (tipo.includes('deus')) precosOficiais = { "1h": "R$ 120", "2h": "R$ 140", "Pernoite": "R$ 250" };
+            // Preços oficiais dinâmicos (extraídos dos arquivos de texto)
+            const getPrice = (text, category, period) => {
+                const lines = text.split('\n');
+                let inPeriod = false;
+                for (const line of lines) {
+                    if (period && line.includes(period)) { inPeriod = true; continue; }
+                    if (inPeriod && line.toLowerCase().includes(category.toLowerCase())) {
+                        const m = line.match(/R\$ (\d+)/);
+                        return m ? `R$ ${m[1]}` : null;
+                    }
+                    if (period && line.includes('⏱') && inPeriod) break; 
+                }
+                // Fallback para pernoite (que não tem sub-períodos no texto)
+                if (!period) {
+                    for (const line of lines) {
+                        if (line.toLowerCase().includes(category.toLowerCase())) {
+                            const m = line.match(/R\$ (\d+)/);
+                            return m ? `R$ ${m[1]}` : null;
+                        }
+                    }
+                }
+                return null;
+            };
+
+            const cat = tipo.includes('master') ? 'Master' : (tipo.includes('intensy') ? 'Intensy' : (tipo.includes('deus') ? 'Deuses' : 'Apartamento'));
+            const p1h = getPrice(PRECO_PERIODO, cat, '1 HORA') || (cat === 'Master' ? 'R$ 95' : (cat === 'Intensy' ? 'R$ 105' : (cat === 'Deuses' ? 'R$ 120' : 'R$ 65')));
+            const p2h = getPrice(PRECO_PERIODO, cat, '2 HORAS') || (cat === 'Master' ? 'R$ 105' : (cat === 'Intensy' ? 'R$ 120' : (cat === 'Deuses' ? 'R$ 140' : 'R$ 70')));
+            const pPern = getPrice(PRECO_PERNOITE, cat) || (cat === 'Master' ? 'R$ 190' : (cat === 'Intensy' ? 'R$ 210' : (cat === 'Deuses' ? 'R$ 250' : 'R$ 130')));
+
+            let precosOficiais = { "1h": p1h, "2h": p2h, "Pernoite": pPern };
 
             return {
                 quarto: numero_quarto,
