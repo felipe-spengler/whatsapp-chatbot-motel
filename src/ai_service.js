@@ -163,15 +163,18 @@ async function getDynamicContext(userText) {
                 return acc;
             }, {});
 
-            // Mapeamento de Períodos (da tabela periodos_quarto)
+            // Mapeamento de Períodos (da tabela periodos_quarto) - DEDUPLICADO por Categoria
             const categoryPeriods = periods.reduce((acc, p) => {
                 const mappedType = mapType(p.tipoquarto);
-                if (!acc[mappedType]) acc[mappedType] = [];
-                acc[mappedType].push({
-                    desc: p.descricao,
-                    valor: p.valor,
-                    tempo: p.tempo_minutos
-                });
+                if (!acc[mappedType]) acc[mappedType] = new Map();
+                
+                const key = p.descricao.trim().toLowerCase();
+                if (!acc[mappedType].has(key)) {
+                    acc[mappedType].set(key, {
+                        desc: p.descricao,
+                        valor: p.valor
+                    });
+                }
                 return acc;
             }, {});
 
@@ -181,15 +184,19 @@ async function getDynamicContext(userText) {
             categories.forEach(cat => {
                 avContext += `--- ${cat.toUpperCase()} ---\n`;
                 
-                // Períodos
-                const catPers = categoryPeriods[cat] || [];
-                if (catPers.length > 0) {
-                    catPers.forEach(p => {
+                const catPersMap = categoryPeriods[cat];
+                let hasPernoite = false;
+
+                if (catPersMap && catPersMap.size > 0) {
+                    catPersMap.forEach(p => {
                         avContext += `- ${p.desc}: R$ ${p.valor}\n`;
+                        if (p.desc.toLowerCase().includes('pernoite')) hasPernoite = true;
                     });
-                } else {
-                    // Fallback se não houver na periodos_quarto
-                    avContext += `- Pernoite: R$ ${typePricing[cat]?.pernoite || 'Sob consulta'}\n`;
+                } 
+
+                // Se o pernoite não veio da tabela de períodos, pega da tabela de quartos
+                if (!hasPernoite) {
+                    avContext += `- Pernoite (12h): R$ ${typePricing[cat]?.pernoite || 'Sob consulta'}\n`;
                 }
 
                 // Hora Extra
