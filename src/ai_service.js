@@ -130,7 +130,6 @@ async function getDynamicContext(userText) {
             
             const freeRooms = rooms.filter(r => r.status === 'livre');
             
-            // Normalização de nomes para a IA
             const mapType = (t) => {
                 const lower = t.toLowerCase();
                 if (lower.includes('apartamento') || lower.includes('padrão')) return 'Apartamento';
@@ -142,83 +141,73 @@ async function getDynamicContext(userText) {
 
             const availableTypes = [...new Set(freeRooms.map(r => mapType(r.tipoquarto)))];
             
-            // Mapeamento de descrições/itens por categoria
+            // Itens/Descrições
             const typeDescriptions = rooms.reduce((acc, r) => {
                 const mappedType = mapType(r.tipoquarto);
-                if (!acc[mappedType]) {
-                    acc[mappedType] = r.itens || 'Nenhuma informação técnica cadastrada no banco de dados.';
-                }
+                if (!acc[mappedType]) acc[mappedType] = r.itens || 'Informação técnica não disponível.';
                 return acc;
             }, {});
 
-            // Mapeamento de Preços por Categoria (da tabela quartos/status)
-            const typePricing = rooms.reduce((acc, r) => {
+            // Preços do Banco (Fallback da tabela quartos)
+            const typePricingFallback = rooms.reduce((acc, r) => {
                 const mappedType = mapType(r.tipoquarto);
                 if (!acc[mappedType]) {
-                    acc[mappedType] = {
-                        extra: r.adicional || 20,
-                        pernoite: r.pernoitequarto || 130
-                    };
+                    acc[mappedType] = { extra: r.adicional || 20, pernoite: r.pernoitequarto || 0 };
                 }
                 return acc;
             }, {});
 
-            // Mapeamento de Períodos (da tabela periodos_quarto) - DEDUPLICADO por Categoria
+            // Períodos do Banco (Tabela periodos_quarto) - DEDUPLICADO
             const categoryPeriods = periods.reduce((acc, p) => {
                 const mappedType = mapType(p.tipoquarto);
                 if (!acc[mappedType]) acc[mappedType] = new Map();
-                
                 const key = p.descricao.trim().toLowerCase();
                 if (!acc[mappedType].has(key)) {
-                    acc[mappedType].set(key, {
-                        desc: p.descricao,
-                        valor: p.valor
-                    });
+                    acc[mappedType].set(key, { desc: p.descricao, valor: p.valor });
                 }
                 return acc;
             }, {});
 
-            let avContext = `\n\n[DADOS DE PREÇOS ATUALIZADOS DO SISTEMA]:\n`;
+            let avContext = `\n\n### 💰 TABELA DE PREÇOS OFICIAIS (FONTE ÚNICA DE VERDADE):\n`;
             
             const categories = ['Apartamento', 'Suíte Master', 'Suíte Intensy', 'Suíte dos Deuses'];
             categories.forEach(cat => {
-                avContext += `--- ${cat.toUpperCase()} ---\n`;
+                avContext += `[${cat.toUpperCase()}]\n`;
                 
                 const catPersMap = categoryPeriods[cat];
-                let hasPernoite = false;
+                let foundPernoite = false;
 
                 if (catPersMap && catPersMap.size > 0) {
                     catPersMap.forEach(p => {
                         avContext += `- ${p.desc}: R$ ${p.valor}\n`;
-                        if (p.desc.toLowerCase().includes('pernoite')) hasPernoite = true;
+                        if (p.desc.toLowerCase().includes('pernoite')) foundPernoite = true;
                     });
-                } 
-
-                // Se o pernoite não veio da tabela de períodos, pega da tabela de quartos
-                if (!hasPernoite) {
-                    avContext += `- Pernoite (12h): R$ ${typePricing[cat]?.pernoite || 'Sob consulta'}\n`;
                 }
 
-                // Hora Extra
-                avContext += `- Hora Extra: R$ ${typePricing[cat]?.extra || 20}\n\n`;
+                // Se não achou pernoite na tabela de períodos, usa o da tabela de quartos
+                if (!foundPernoite && typePricingFallback[cat]?.pernoite > 0) {
+                    avContext += `- Pernoite: R$ ${typePricingFallback[cat].pernoite}\n`;
+                }
+
+                avContext += `- Hora Extra: R$ ${typePricingFallback[cat]?.extra || 20}\n\n`;
             });
 
-            avContext += `\n[O QUE TEM EM CADA CATEGORIA]:\n`;
+            avContext += `### 🏨 O QUE TEM EM CADA CATEGORIA:\n`;
             Object.entries(typeDescriptions).forEach(([type, items]) => {
                 avContext += `- ${type}: ${items}\n`;
             });
 
+            avContext += `\n### 🟢 DISPONIBILIDADE REAL:\n`;
             if (availableTypes.length > 0) {
-                avContext += `\n[DISPONIBILIDADE REAL AGORA]: Temos as seguintes categorias com quartos LIVRES no momento: ${availableTypes.join(', ')}.`;
-                avContext += `\nIMPORTANTE: Se o cliente perguntar por uma categoria que NÃO está nesta lista, informe que ela está esgotada no momento.`;
+                avContext += `Categorias LIVRES agora: ${availableTypes.join(', ')}.`;
             } else {
-                avContext += `\n[DISPONIBILIDADE REAL AGORA]: No momento, todos os quartos estão ocupados ou em limpeza.`;
+                avContext += `No momento, todos os quartos estão ocupados ou em limpeza.`;
             }
 
+            console.log(`[DEBUG] Contexto dinâmico gerado:\n${avContext}`);
             availabilityCache = { data: avContext, lastUpdate: now };
             return context + avContext;
         },
-        // fallback: usa o cache anterior ou sem disponibilidade
         async () => context + (availabilityCache.data || '')
     );
 }
