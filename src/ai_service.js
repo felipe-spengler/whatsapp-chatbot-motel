@@ -7,20 +7,10 @@ const db = require('./db_service');
 const { withCircuitBreaker, withTimeout } = require('./protection');
 
 // ===== PROMPTS =====
+// ===== PROMPTS =====
 const MOTEL_PROMPT = fs.readFileSync(path.join(__dirname, '..', 'prompt_ia.txt'), 'utf8');
-const PRECO_PERIODO = fs.readFileSync(path.join(__dirname, '..', 'preco_periodo.txt'), 'utf8');
-const PRECO_PERNOITE = fs.readFileSync(path.join(__dirname, '..', 'preco_pernoite.txt'), 'utf8');
-const PRECO_HORA_EXTRA = fs.readFileSync(path.join(__dirname, '..', 'preco_hora_extra.txt'), 'utf8');
-const PRICE_CONTEXT = `
-[DADOS DE PREÇOS E CATEGORIAS]:
-Abaixo estão os valores oficiais do motel. Use-os com precisão:
 
-${PRECO_PERIODO}
-
-${PRECO_PERNOITE}
- 
-${PRECO_HORA_EXTRA}
-
+const PRICING_RULES = `
  INSTRUÇÃO PARA PREÇOS:
 1. Trabalhe com duas categorias de tempo: **Período (1h ou 2h)** e **Pernoite (12h)**. 
 2. Sempre que informar o valor de 1h, informe JUNTOS o de 2h, destacando que por "apenas alguns reais a mais" (cite a diferença exata, ex: R$ 5) o cliente ganha o dobro de tempo. **NÃO faça isso se o cliente já tiver solicitado Pernoite.**
@@ -121,7 +111,7 @@ async function getDynamicContext(userText) {
     
     if (!needsContext && userText !== "[FORÇA_CONTEXTO]") return '';
 
-    let context = PRICE_CONTEXT;
+    let context = PRICING_RULES;
 
     const now = Date.now();
     
@@ -301,36 +291,11 @@ const functionHandlers = {
 
             const pernoiteVencimento = new Date(statusTime.getTime() + (12 * 3600000));
 
-            // Preços oficiais dinâmicos (extraídos dos arquivos de texto)
-            const getPrice = (text, category, period) => {
-                const lines = text.split('\n');
-                let inPeriod = false;
-                for (const line of lines) {
-                    if (period && line.includes(period)) { inPeriod = true; continue; }
-                    if (inPeriod && line.toLowerCase().includes(category.toLowerCase())) {
-                        const m = line.match(/R\$ (\d+)/);
-                        return m ? `R$ ${m[1]}` : null;
-                    }
-                    if (period && line.includes('⏱') && inPeriod) break; 
-                }
-                // Fallback para pernoite (que não tem sub-períodos no texto)
-                if (!period) {
-                    for (const line of lines) {
-                        if (line.toLowerCase().includes(category.toLowerCase())) {
-                            const m = line.match(/R\$ (\d+)/);
-                            return m ? `R$ ${m[1]}` : null;
-                        }
-                    }
-                }
-                return null;
+            let precosOficiais = { 
+                "1h": `R$ ${room.valorquarto}`, 
+                "Pernoite": `R$ ${room.pernoitequarto}`,
+                "Hora Extra": `R$ ${room.adicional}/h`
             };
-
-            const cat = tipo.includes('master') ? 'Master' : (tipo.includes('intensy') ? 'Intensy' : (tipo.includes('deus') ? 'Deuses' : 'Apartamento'));
-            const p1h = getPrice(PRECO_PERIODO, cat, '1 HORA') || (cat === 'Master' ? 'R$ 95' : (cat === 'Intensy' ? 'R$ 105' : (cat === 'Deuses' ? 'R$ 120' : 'R$ 65')));
-            const p2h = getPrice(PRECO_PERIODO, cat, '2 HORAS') || (cat === 'Master' ? 'R$ 105' : (cat === 'Intensy' ? 'R$ 120' : (cat === 'Deuses' ? 'R$ 140' : 'R$ 70')));
-            const pPern = getPrice(PRECO_PERNOITE, cat) || (cat === 'Master' ? 'R$ 190' : (cat === 'Intensy' ? 'R$ 210' : (cat === 'Deuses' ? 'R$ 250' : 'R$ 130')));
-
-            let precosOficiais = { "1h": p1h, "2h": p2h, "Pernoite": pPern };
 
             return {
                 quarto: numero_quarto,
