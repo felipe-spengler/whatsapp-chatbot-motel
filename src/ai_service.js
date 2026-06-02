@@ -317,6 +317,9 @@ async function getGeminiResponse(userText, history = []) {
         const dynamicContext = await getDynamicContext(userText);
 
         const chat = model.startChat({
+            generationConfig: {
+                temperature: 0.0,
+            },
             history: [
                 { role: 'user', parts: [{ text: MOTEL_PROMPT + dynamicContext }] },
                 ...history.slice(-10).map(m => ({
@@ -421,7 +424,7 @@ async function getMotelAIResponseInternal(userText, history = []) {
                     messages,
                     tools,
                     tool_choice: 'auto',
-                    temperature: 0.2
+                    temperature: 0.0
                 }, {
                     headers: { Authorization: `Bearer ${GROQ_KEY}` },
                     timeout: 15000
@@ -476,7 +479,7 @@ async function getMotelAIResponseInternal(userText, history = []) {
                         model: 'llama-3.1-8b-instant',
                         messages,
                         tools,
-                        temperature: 0.2
+                        temperature: 0.0
                     }, {
                         headers: { Authorization: `Bearer ${GROQ_KEY}` },
                         timeout: 15000

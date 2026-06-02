@@ -1,14 +1,13 @@
 require('dotenv').config();
 const { getMotelAIResponse } = require('./src/ai_service');
+const db = require('./src/db_service');
 
 async function testSingle() {
     let history = [
-        { role: 'user', content: "Quero reservar uma Intensy para hoje às 23:00" },
-        { role: 'assistant', content: "Com certeza! Por quanto tempo deseja ficar? Temos 1h, 2h ou Pernoite (12h)." },
-        { role: 'user', content: "Pernoite" },
-        { role: 'assistant', content: "Perfeito, pernoite na Suíte Intensy custa R$ 210. Deseja confirmar?" }
+        { role: 'user', content: "bom diaaaaa, tudo bem?" },
+        { role: 'assistant', content: "Assistente Virtual:\n\nPosso te ajudar com algumas opções ✨\n\n1️⃣ Valores para Períodos (1h e 2h)\n2️⃣ Valores para Pernoite (12h)\n3️⃣ Tirar uma dúvida\n4️⃣ Fazer uma reserva\n\nSe preferir, pode me dizer direto o que precisa 💖" }
     ];
-    const msg = "6 horas";
+    const msg = "como está de papeis, copos, saco de lixo?";
     console.log(`\n➡ Usuário: "${msg}"`);
     try {
         const response = await getMotelAIResponse(msg, history);
@@ -16,7 +15,7 @@ async function testSingle() {
     } catch (err) {
         console.error("Erro:", err.message);
     }
-    process.exit(0);
+    await db.pool.end();
 }
 
 testSingle();

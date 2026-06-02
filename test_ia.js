@@ -40,6 +40,8 @@ async function main() {
     );
     
     console.log("\n=== Fim dos testes ===");
+    const db = require('./src/db_service');
+    await db.pool.end();
 }
 
 main();

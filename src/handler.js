@@ -60,22 +60,7 @@ async function handleMessage(client, message) {
     if (Date.now() - session.lastHumanInteraction < pauseTime) {
         console.log(`[DEBUG] AI Silenciada por intervenção humana em ${from}.`);
 
-        // Notifica o admin apenas 1x por janela de intervenção (evita spam)
-        if (NOTIFICATION_NUMBER && (Date.now() - (session.humanNotifiedAt || 0)) > pauseTime) {
-            session.humanNotifiedAt = Date.now();
-            const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
-            const rawNumber = from.replace('@c.us', '');
-            const displayNumber = `+${rawNumber}`;
-            const nameStr = notifyName ? `*${notifyName}* (${displayNumber})` : displayNumber;
-            try {
-                await client.sendText(
-                    `${NOTIFICATION_NUMBER}@c.us`,
-                    `🔕 *BOT SILENCIADO:* O cliente ${nameStr} enviou uma mensagem mas o bot está pausado por intervenção humana. Responda manualmente ou aguarde 2 min para o bot retomar.`
-                );
-            } catch (e) {
-                console.error('[NOTIFICAÇÃO] Erro ao avisar sobre bot silenciado:', e.message);
-            }
-        }
+    }
 
         return;
     }
