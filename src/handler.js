@@ -59,9 +59,6 @@ async function handleMessage(client, message) {
     const pauseTime = 2 * 60 * 1000;
     if (Date.now() - session.lastHumanInteraction < pauseTime) {
         console.log(`[DEBUG] AI Silenciada por intervenção humana em ${from}.`);
-
-    }
-
         return;
     }
 
