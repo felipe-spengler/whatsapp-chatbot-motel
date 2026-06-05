@@ -177,6 +177,7 @@ async function initWhatsApp() {
         // Timeout de 4 minutos para a criação do cliente — essencial para VPS com volume lento
         const clientPromise = wppconnect.create({
             session: sessionName,
+            autoClose: 0,
             catchQR: (base64Qrimg) => {
                 console.log('[WPP] 📲 QR Code gerado.');
                 lastQR = base64Qrimg;
