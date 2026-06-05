@@ -196,7 +196,7 @@ async function handleMessage(client, message) {
                     const notifyName = (message.sender && (message.sender.pushname || message.sender.name)) || message.notifyName || '';
                     const realNumber = (message.sender && message.sender.formattedName) ? message.sender.formattedName : from.split('@')[0];
                     const nameStr = notifyName ? `*${notifyName}* ` : '';
-                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA ATIVA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda ou estorno. Bot pausado por 2 min.`);
+                    await client.sendText(`${NOTIFICATION_NUMBER}@c.us`, `🔔 *TRANSFERÊNCIA ATIVA:* Cliente ${nameStr}(${realNumber}) solicitou ajuda ou estorno. Bot pausado por 10 min.`);
                     console.log(`[NOTIFICAÇÃO] Auto-pause e aviso de transferência enviado para o Admin.`);
                 } catch (notifErr) {
                     console.error('[ERRO NOTIFICAÇÃO] Falha ao enviar aviso para o Admin.', notifErr.message);
