@@ -55,8 +55,8 @@ async function handleMessage(client, message) {
 
     const session = sessions[from];
 
-    // 3. Trava de Intervenção Humana (2 minutos)
-    const pauseTime = 2 * 60 * 1000;
+    // 3. Trava de Intervenção Humana (10 minutos)
+    const pauseTime = 10 * 60 * 1000;
     if (Date.now() - session.lastHumanInteraction < pauseTime) {
         console.log(`[DEBUG] AI Silenciada por intervenção humana em ${from}.`);
         return;
@@ -97,10 +97,10 @@ async function handleMessage(client, message) {
         clearTimeout(session.bufferTimeout);
     }
 
-    // Inicia um timer de 3 segundos para aguardar mais mensagens (buffer)
+    // Inicia um timer de 10 segundos para aguardar mais mensagens (buffer)
     session.bufferTimeout = setTimeout(async () => {
-        // Re-verifica intervenção humana: pode ter ocorrido durante a espera
-        if (Date.now() - session.lastHumanInteraction < 2 * 60 * 1000) {
+        // Re-verifica intervenção humana: pode ter ocorreu durante a espera
+        if (Date.now() - session.lastHumanInteraction < 10 * 60 * 1000) {
             console.log(`[DEBUG] Buffer cancelado: intervenção humana ocorreu durante a espera em ${from}.`);
             session.messageBuffer = [];
             return;
@@ -214,7 +214,7 @@ async function handleMessage(client, message) {
             await new Promise(r => setTimeout(r, typingDelay + randomFuzzy));
 
             // Checagem de interrupção humana no último segundo
-            if (Date.now() - session.lastHumanInteraction < 2 * 60 * 1000) {
+            if (Date.now() - session.lastHumanInteraction < 10 * 60 * 1000) {
                 console.log(`[REAL] Envio CANCELADO no último segundo (humano interveio) em ${from}.`);
                 await client.stopTyping(from);
                 return;
@@ -236,7 +236,7 @@ async function handleMessage(client, message) {
         }
 
         }); // fecha enqueueJob
-    }, 3000);
+    }, 10000);
 }
 
 async function handleAnyMessage(client, message) {
