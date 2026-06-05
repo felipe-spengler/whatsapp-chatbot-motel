@@ -172,13 +172,22 @@ async function initWhatsApp() {
             }
         }
 
-        console.log('[INIT] 🌐 Chamando wppconnect.create...');
-        
-        // Timeout de 4 minutos para a criação do cliente — essencial para VPS com volume lento
+        let startupTimeout;
+        const timeoutPromise = new Promise((_, reject) => {
+            startupTimeout = setTimeout(() => {
+                reject(new Error('WPPConnect Timeout: demorou mais de 4 minutos para iniciar. Verifique limites de CPU/RAM.'));
+            }, 240000);
+        });
+
         const clientPromise = wppconnect.create({
             session: sessionName,
             autoClose: 0,
             catchQR: (base64Qrimg) => {
+                if (startupTimeout) {
+                    clearTimeout(startupTimeout);
+                    startupTimeout = null;
+                    console.log('[WPP] 🧹 Timeout de boot cancelado (QR Code gerado).');
+                }
                 console.log('[WPP] 📲 QR Code gerado.');
                 lastQR = base64Qrimg;
                 lastStatus = 'qr';
@@ -215,12 +224,17 @@ async function initWhatsApp() {
             useChrome: true // Força o uso do Chrome instalado ao invés do Chromium baixado
         });
 
-        // Wrapper de timeout ampliado para 4 minutos
+        // Wrapper de timeout inteligente
         const client = await Promise.race([
-            clientPromise,
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('WPPConnect Timeout: demorou mais de 4 minutos para iniciar. Verifique limites de CPU/RAM.')), 240000)
-            )
+            clientPromise.then((c) => {
+                if (startupTimeout) {
+                    clearTimeout(startupTimeout);
+                    startupTimeout = null;
+                    console.log('[WPP] 🧹 Timeout de boot cancelado (Sessão conectada).');
+                }
+                return c;
+            }),
+            timeoutPromise
         ]);
 
         wppClient = client;
